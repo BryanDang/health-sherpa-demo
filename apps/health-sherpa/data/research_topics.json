@@ -1,0 +1,334 @@
+{
+  "certifications": {
+    "research_questions": [
+      "Are there government bodies that certify AI health tools?",
+      "Are there independent ethics committees or consumer protection groups that evaluate AI tools?"
+    ],
+    "findings": {
+      "government_bodies": {
+        "fda": {
+          "name": "Food and Drug Administration",
+          "role": "Primary federal regulator for AI-enabled medical devices",
+          "approved_devices": "900+ AI-enabled medical devices as of August 2024",
+          "guidance_documents": [
+            "AI/ML-Based Software as a Medical Device (2021)",
+            "Coordinated approach document (March 2024)"
+          ],
+          "evaluation_focus": [
+            "Safety",
+            "Efficacy",
+            "Clinical validation",
+            "Post-market surveillance"
+          ]
+        },
+        "ftc": {
+          "name": "Federal Trade Commission",
+          "role": "Consumer protection and competition enforcement for AI tools",
+          "key_activities": [
+            "Deceptive AI claims enforcement",
+            "Algorithm transparency requirements",
+            "Data deletion mandates",
+            "Non-discrimination enforcement"
+          ],
+          "recent_actions": ["Banned Rite Aid facial recognition (2024)"]
+        },
+        "state_health_departments": {
+          "examples": [
+            "Illinois AI Use in Health Insurance Act (SB 1425)",
+            "Multiple states requiring physician oversight of AI clinical decisions"
+          ],
+          "trends": [
+            "Prohibitions against AI use without human oversight",
+            "State insurance commissioner authority over AI use"
+          ]
+        }
+      },
+      "ethics_committees": {
+        "irbs": {
+          "name": "Institutional Review Boards",
+          "role": "Ethics oversight for AI research involving human subjects",
+          "focus": [
+            "Protection of research participants",
+            "Informed consent for AI research",
+            "Risk-benefit analysis",
+            "Privacy protection"
+          ]
+        },
+        "hospital_ethics": {
+          "role": "Institution-level AI ethics oversight",
+          "activities": [
+            "AI implementation ethical review",
+            "Clinical AI decision-making oversight",
+            "Patient care AI ethics guidance"
+          ]
+        }
+      },
+      "consumer_protection": {
+        "consumer_watchdog": {
+          "focus": "Privacy protection and consumer rights in AI healthcare"
+        },
+        "pirg": {
+          "name": "Public Interest Research Groups Consumer Watchdogs",
+          "history": "50+ years of consumer protection advocacy"
+        },
+        "psos": {
+          "name": "Patient Safety Organizations",
+          "role": "Monitor AI-related adverse events and safety issues"
+        }
+      },
+      "industry_standards": {
+        "hipaa": {
+          "requirements": [
+            "PHI safeguards in AI systems",
+            "Business Associate Agreements for AI vendors",
+            "Risk assessments",
+            "Patient consent"
+          ]
+        },
+        "soc2": {
+          "criteria": [
+            "Security",
+            "Availability",
+            "Processing Integrity",
+            "Confidentiality",
+            "Privacy"
+          ]
+        },
+        "nist_ai_rmf": {
+          "functions": ["Govern", "Map", "Measure", "Manage"]
+        }
+      },
+      "professional_organizations": {
+        "ama": {
+          "name": "American Medical Association",
+          "principles": "Seven principles for AI development, deployment, and use",
+          "focus": [
+            "Ethics",
+            "Evidence",
+            "Equity",
+            "Human oversight requirement"
+          ]
+        },
+        "acr": {
+          "name": "American College of Radiology",
+          "program": "ARCH-AI: First medical practice AI quality assurance program"
+        }
+      }
+    }
+  },
+  "conflict_transparency": {
+    "research_questions": [
+      "Is there a site where people can check if a provider has a conflict of interest?"
+    ],
+    "findings": {
+      "payment_databases": {
+        "cms_open_payments": {
+          "name": "CMS Open Payments Database",
+          "url": "https://openpaymentsdata.cms.gov/",
+          "description": "Official federal database tracking $72.8+ billion in payments from pharmaceutical and medical device companies",
+          "coverage": "84+ million records over 7 years",
+          "data_types": [
+            "Consulting fees",
+            "Royalties",
+            "Travel expenses",
+            "Educational payments"
+          ]
+        },
+        "propublica_dollars_for_docs": {
+          "name": "ProPublica Dollars for Docs",
+          "url": "https://projects.propublica.org/docdollars/",
+          "description": "User-friendly search tool for physician payments (historical through 2018)",
+          "coverage": "Nearly $12 billion in payments to 1+ million physicians"
+        }
+      },
+      "licensing_lookups": {
+        "state_medical_boards": {
+          "federation_docinfo": {
+            "name": "Federation of State Medical Boards DocInfo",
+            "url": "https://www.docinfo.org/",
+            "provides": [
+              "License status",
+              "Educational background",
+              "Disciplinary actions",
+              "Board certifications"
+            ]
+          },
+          "examples": {
+            "california": "https://mbc.ca.gov/License-Verification/",
+            "texas": "https://www.tmb.state.tx.us/page/look-up-a-license"
+          }
+        }
+      },
+      "quality_ratings": {
+        "cms_care_compare": {
+          "name": "CMS Care Compare",
+          "url": "https://www.medicare.gov/care-compare/",
+          "description": "Official CMS 1-5 star ratings for 4,500+ hospitals",
+          "measures": "46 quality measures across 5 categories"
+        },
+        "leapfrog_safety_grade": {
+          "name": "The Leapfrog Group Hospital Safety Grade",
+          "url": "https://www.hospitalsafetygrade.org/",
+          "description": "A-F letter grades for nearly 3,000 hospitals",
+          "focus": "30+ evidence-based patient safety measures"
+        },
+        "healthgrades": {
+          "name": "Healthgrades",
+          "url": "https://www.healthgrades.com/",
+          "features": [
+            "5-star physician ratings",
+            "Patient reviews",
+            "Board Action Check"
+          ],
+          "usage": "Used by 50%+ of Americans who visit doctors annually"
+        }
+      },
+      "cost_transparency": {
+        "healthcare_bluebook": {
+          "name": "Healthcare Bluebook",
+          "url": "https://www.healthcarebluebook.com/",
+          "features": "Price transparency with quality rankings using color-coded system"
+        },
+        "fair_health": {
+          "name": "FAIR Health Consumer",
+          "url": "https://www.fairhealthconsumer.org/",
+          "focus": "Provider-specific pricing and quality for 100+ common procedures"
+        }
+      }
+    }
+  },
+  "affordability_resources": {
+    "research_questions": [
+      "Where can users find low-cost care?",
+      "Where can users find affordable medications?",
+      "Where can users find affordable lab services?"
+    ],
+    "findings": {
+      "low_cost_care": {
+        "fqhcs": {
+          "name": "Federally Qualified Health Centers",
+          "locator": "https://findahealthcenter.hrsa.gov/",
+          "services": [
+            "Primary care",
+            "Dental",
+            "Mental health",
+            "Substance abuse",
+            "Pharmacy"
+          ],
+          "payment": "Sliding fee scale based on income and family size"
+        },
+        "nafc": {
+          "name": "National Association of Free & Charitable Clinics",
+          "url": "https://nafcclinics.org/",
+          "network": "1,400+ free and charitable clinics nationwide",
+          "eligibility": "Low-income individuals without insurance or high-deductible plans"
+        },
+        "hospital_charity_care": {
+          "requirement": "Nonprofit hospitals must provide charity care",
+          "eligibility": "Typically 200-400% of Federal Poverty Level",
+          "coverage": [
+            "Emergency services",
+            "Inpatient care",
+            "Outpatient services"
+          ]
+        }
+      },
+      "medication_assistance": {
+        "discount_programs": {
+          "goodrx": {
+            "savings": "Up to 80% discounts at 70,000+ pharmacies",
+            "access": "Free discount card, mobile app"
+          },
+          "needymeds": {
+            "url": "https://www.needymeds.org/",
+            "services": [
+              "Free prescription discount card",
+              "Patient assistance program database"
+            ]
+          },
+          "rxassist": {
+            "url": "https://www.rxassist.org/",
+            "focus": "Comprehensive directory of patient assistance programs"
+          }
+        },
+        "patient_assistance_programs": {
+          "description": "Pharmaceutical company programs offering free or reduced-cost medications",
+          "eligibility": "Uninsured or underinsured patients with income requirements"
+        },
+        "state_programs": {
+          "spaps": {
+            "name": "State Pharmaceutical Assistance Programs",
+            "coverage": "Available in 40+ states",
+            "coordination": "Many coordinate with Medicare Part D"
+          }
+        }
+      },
+      "affordable_lab_testing": {
+        "direct_pay_services": {
+          "labcorp_ondemand": {
+            "url": "https://www.ondemand.labcorp.com/",
+            "features": [
+              "Order tests online without doctor visit",
+              "Transparent pricing",
+              "Wide network"
+            ]
+          },
+          "walkin_lab": {
+            "url": "https://www.walkinlab.com/",
+            "partners": "LabCorp and Quest Diagnostics",
+            "features": "Online ordering with cash pricing"
+          }
+        },
+        "typical_pricing": {
+          "basic_panel": "$116-$142 average",
+          "savings": "Often 50-80% less than insurance-billed rates"
+        },
+        "alternatives": [
+          "Community health centers",
+          "Retail clinics (CVS MinuteClinic, Walgreens)"
+        ]
+      },
+      "government_programs": {
+        "medicaid": {
+          "eligibility": "Up to 138% of Federal Poverty Level in expansion states",
+          "coverage": "Comprehensive healthcare including prescriptions, hospital care, preventive services"
+        },
+        "chip": {
+          "name": "Children's Health Insurance Program",
+          "eligibility": "Children in families with incomes too high for Medicaid but too low for private insurance",
+          "income_limits": "Up to 200-400% of Federal Poverty Level"
+        },
+        "medicare_extra_help": {
+          "description": "Assists with Part D prescription drug costs",
+          "includes": "Medicare Savings Programs for premiums, deductibles, copayments"
+        }
+      },
+      "nonprofit_assistance": {
+        "healthwell_foundation": {
+          "url": "https://www.healthwellfoundation.org/",
+          "services": [
+            "Copays",
+            "Premiums",
+            "Deductibles",
+            "Out-of-pocket expenses"
+          ],
+          "efficiency": "100% of donations go directly to patient grants",
+          "impact": "$1.2+ billion awarded in 2024"
+        },
+        "pan_foundation": {
+          "name": "Patient Access Network Foundation",
+          "url": "https://www.panfoundation.org/",
+          "coverage": "80+ diseases and chronic conditions",
+          "specialization": "One of the largest charitable patient assistance organizations"
+        },
+        "other_organizations": [
+          "Good Days Foundation",
+          "Chronic Disease Fund",
+          "Patient Advocate Foundation",
+          "CancerCare",
+          "National Kidney Foundation"
+        ]
+      }
+    }
+  }
+}

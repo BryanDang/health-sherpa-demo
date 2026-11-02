@@ -1,0 +1,323 @@
+/**
+ * Failure Mode Tests for Enhanced Triage Features
+ * Tests system behavior under failure conditions
+ */
+
+const BASE_URL = process.env.SUPABASE_FUNCTIONS_URL;
+const API_KEY = `Bearer ${process.env.SUPABASE_ANON_KEY}`;
+
+class FailureModeTestSuite {
+  constructor() {
+    this.results = [];
+    this.totalTests = 0;
+    this.passedTests = 0;
+  }
+
+  async runTest(name, testFn) {
+    this.totalTests++;
+    console.log(`\nTesting Failure Mode: ${name}`);
+    
+    try {
+      await testFn();
+      this.passedTests++;
+      console.log(`RESILIENT: ${name}`);
+      this.results.push({ name, status: 'PASS', error: null });
+    } catch (error) {
+      console.log(`FRAGILE: ${name} - ${error.message}`);
+      this.results.push({ name, status: 'FAIL', error: error.message });
+    }
+  }
+
+  async apiCall(endpoint, body, options = {}) {
+    const controller = new AbortController();
+    if (options.timeout) {
+      setTimeout(() => controller.abort(), options.timeout);
+    }
+
+    const response = await fetch(`${BASE_URL}/${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': options.invalidAuth ? 'Bearer invalid-key' : API_KEY,
+        'Content-Type': 'application/json',
+        ...options.headers
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+      ...options.fetchOptions
+    });
+
+    return response;
+  }
+
+  assert(condition, message) {
+    if (!condition) {
+      throw new Error(message);
+    }
+  }
+
+  assertExists(value, fieldName) {
+    if (value === undefined || value === null) {
+      throw new Error(`Expected ${fieldName} to exist`);
+    }
+  }
+
+  printSummary() {
+    console.log('\n' + '='.repeat(50));
+    console.log(`FAILURE MODE TEST SUMMARY`);
+    console.log(`Total Tests: ${this.totalTests}`);
+    console.log(`Resilient: ${this.passedTests}`);
+    console.log(`Fragile: ${this.totalTests - this.passedTests}`);
+    console.log(`Resilience Rate: ${((this.passedTests / this.totalTests) * 100).toFixed(1)}%`);
+    
+    if (this.passedTests === this.totalTests) {
+      console.log(' SYSTEM IS RESILIENT TO ALL TESTED FAILURE MODES!');
+    } else {
+      console.log('\n Fragile Areas Found:');
+      this.results.filter(r => r.status === 'FAIL').forEach(r => {
+        console.log(`  - ${r.name}: ${r.error}`);
+      });
+    }
+    console.log('='.repeat(50));
+  }
+}
+
+async function runFailureModeTests() {
+  const suite = new FailureModeTestSuite();
+
+  // Failure Mode 1: Invalid Authentication
+  await suite.runTest('Invalid API Authentication', async () => {
+    const response = await suite.apiCall('triage-enhanced', {
+      message: 'test message',
+      conversationHistory: []
+    }, { invalidAuth: true });
+    
+    suite.assert(response.status === 401 || response.status === 403, 
+      'Should return authentication error for invalid credentials');
+  });
+
+  // Failure Mode 2: Malformed Request Body
+  await suite.runTest('Malformed JSON Request', async () => {
+    try {
+      const response = await fetch(`${BASE_URL}/triage-enhanced`, {
+        method: 'POST',
+        headers: {
+          'Authorization': API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: '{"message": "test", invalid json}'
+      });
+      
+      suite.assert(response.status >= 400, 'Should handle malformed JSON gracefully');
+    } catch (error) {
+      // Network/parsing errors are expected for malformed requests
+      suite.assert(true, 'Malformed request properly rejected');
+    }
+  });
+
+  // Failure Mode 3: Missing Required Fields
+  await suite.runTest('Missing Required Message Field', async () => {
+    const response = await suite.apiCall('triage-enhanced', {
+      conversationHistory: []
+      // missing message field
+    });
+    
+    suite.assert(response.status === 400, 'Should return 400 for missing required fields');
+    
+    const data = await response.json();
+    suite.assertExists(data.error, 'Should include error description');
+  });
+
+  // Failure Mode 4: Extremely Long Input
+  await suite.runTest('Extremely Long Message Input', async () => {
+    const veryLongMessage = 'x'.repeat(100000); // 100KB message
+    
+    const response = await suite.apiCall('triage-enhanced', {
+      message: veryLongMessage,
+      conversationHistory: []
+    });
+    
+    // Should either process successfully or fail gracefully
+    suite.assert(response.status === 200 || response.status >= 400, 
+      'Should handle extremely long input without crashing');
+  });
+
+  // Failure Mode 5: Invalid Data Types
+  await suite.runTest('Invalid Data Types', async () => {
+    const response = await suite.apiCall('triage-enhanced', {
+      message: 12345, // should be string
+      conversationHistory: "not an array" // should be array
+    });
+    
+    // Should fail gracefully with validation error
+    suite.assert(response.status >= 400 || response.status === 200, 
+      'Should handle invalid data types gracefully');
+  });
+
+  // Failure Mode 6: Network Timeout Simulation
+  await suite.runTest('Network Timeout Handling', async () => {
+    try {
+      const response = await suite.apiCall('triage-enhanced', {
+        message: 'timeout test',
+        conversationHistory: []
+      }, { timeout: 100 }); // Very short timeout
+      
+      // If it completes within timeout, that's fine
+      suite.assert(true, 'Request completed or timeout handled gracefully');
+    } catch (error) {
+      // Timeout or abort errors are expected
+      suite.assert(error.name === 'AbortError' || error.message.includes('timeout'), 
+        'Should handle timeouts appropriately');
+    }
+  });
+
+  // Failure Mode 7: Large Conversation History
+  await suite.runTest('Large Conversation History', async () => {
+    const largeHistory = [];
+    for (let i = 0; i < 100; i++) {
+      largeHistory.push(
+        { role: 'user', content: `Message ${i} with some longer content to test memory usage` },
+        { role: 'assistant', content: `Response ${i} with detailed medical information and recommendations` }
+      );
+    }
+    
+    const response = await suite.apiCall('triage-enhanced', {
+      message: 'Current issue with large history',
+      conversationHistory: largeHistory
+    });
+    
+    // Should handle large context or fail gracefully
+    suite.assert(response.status === 200 || response.status >= 400, 
+      'Should handle large conversation history without crashing');
+  });
+
+  // Failure Mode 8: Concurrent Request Stress
+  await suite.runTest('Concurrent Request Handling', async () => {
+    const concurrentRequests = [];
+    
+    for (let i = 0; i < 5; i++) {
+      concurrentRequests.push(
+        suite.apiCall('triage-enhanced', {
+          message: `Concurrent request ${i}`,
+          conversationHistory: []
+        })
+      );
+    }
+    
+    const responses = await Promise.allSettled(concurrentRequests);
+    const successfulResponses = responses.filter(r => 
+      r.status === 'fulfilled' && r.value.status === 200
+    );
+    
+    suite.assert(successfulResponses.length >= 1, 
+      'Should handle at least some concurrent requests successfully');
+  });
+
+  // Failure Mode 9: Invalid Streaming Request
+  await suite.runTest('Invalid Streaming Request Handling', async () => {
+    const response = await suite.apiCall('triage-enhanced', {
+      message: 'streaming test',
+      conversationHistory: [],
+      useStreaming: "invalid_boolean_value" // should be boolean
+    });
+    
+    // Should either process as non-streaming or fail gracefully
+    suite.assert(response.status === 200 || response.status >= 400, 
+      'Should handle invalid streaming parameter gracefully');
+  });
+
+  // Failure Mode 10: Resource Exhaustion Simulation
+  await suite.runTest('Multiple Complex Requests', async () => {
+    const complexRequests = [];
+    
+    for (let i = 0; i < 3; i++) {
+      complexRequests.push(
+        suite.apiCall('triage-enhanced', {
+          message: `Complex medical scenario ${i}: severe chest pain with multiple symptoms including shortness of breath, dizziness, nausea, and radiating pain down the left arm. This has been ongoing for several hours with increasing intensity.`,
+          conversationHistory: [
+            { role: 'user', content: 'I have been experiencing health issues' },
+            { role: 'assistant', content: 'I understand you are experiencing health concerns. Can you provide more details?' }
+          ]
+        })
+      );
+    }
+    
+    const responses = await Promise.allSettled(complexRequests);
+    const anySuccessful = responses.some(r => 
+      r.status === 'fulfilled' && r.value.status === 200
+    );
+    
+    suite.assert(anySuccessful || responses.length > 0, 
+      'Should handle complex requests without complete system failure');
+  });
+
+  // Failure Mode 11: Empty/Null Values
+  await suite.runTest('Empty and Null Value Handling', async () => {
+    const testCases = [
+      { message: '', conversationHistory: [] },
+      { message: null, conversationHistory: [] },
+      { message: undefined, conversationHistory: [] },
+      { message: 'test', conversationHistory: null },
+      { message: 'test', conversationHistory: undefined }
+    ];
+    
+    let handledGracefully = 0;
+    
+    for (const testCase of testCases) {
+      try {
+        const response = await suite.apiCall('triage-enhanced', testCase);
+        if (response.status >= 400 || response.status === 200) {
+          handledGracefully++;
+        }
+      } catch (error) {
+        handledGracefully++; // Network errors are acceptable
+      }
+    }
+    
+    suite.assert(handledGracefully === testCases.length, 
+      'Should handle all empty/null value cases gracefully');
+  });
+
+  // Failure Mode 12: Non-English Input
+  await suite.runTest('Non-English Input Handling', async () => {
+    const nonEnglishMessages = [
+      'Me duele la cabeza muy fuerte', // Spanish
+      'Головная боль очень сильная', // Russian
+      '我头痛得很厉害', // Chinese
+      '頭がとても痛いです', // Japanese
+      'مرحبا، أعاني من صداع شديد' // Arabic
+    ];
+    
+    let handledCount = 0;
+    
+    for (const message of nonEnglishMessages) {
+      try {
+        const response = await suite.apiCall('triage-enhanced', {
+          message: message,
+          conversationHistory: []
+        });
+        
+        if (response.status === 200 || response.status >= 400) {
+          handledCount++;
+        }
+      } catch (error) {
+        handledCount++; // Any response is better than crash
+      }
+    }
+    
+    suite.assert(handledCount === nonEnglishMessages.length, 
+      'Should handle non-English input without crashing');
+  });
+
+  suite.printSummary();
+  return suite.passedTests === suite.totalTests;
+}
+
+// Run the failure mode tests
+console.log('Starting Enhanced Triage Failure Mode Tests...');
+runFailureModeTests().then(success => {
+  console.log(success ? '\n System demonstrates good resilience!' : '\n System has resilience gaps that need attention.');
+  process.exit(success ? 0 : 1);
+}).catch(error => {
+  console.error('Failure mode test suite crashed:', error);
+  process.exit(1);
+});

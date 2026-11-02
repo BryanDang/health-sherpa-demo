@@ -1,0 +1,625 @@
+/**
+ * Integration Tests: Google Maps + Turquoise Health Pricing Integration
+ * 
+ * Tests combined provider search with pricing data correlation
+ * Following TDD + Contract-Driven Development with rate limiting
+ */
+
+import { describe, test, expect, beforeAll, afterEach } from '@jest/globals';
+import { testRateLimiter, rateLimitedApiCall } from '../utils/multi-model-rate-limiter';
+
+// Test configuration combining both services
+const INTEGRATION_TEST_CONFIG = {
+  testLocations: [
+    {
+      name: 'Orlando, FL',
+      zipCode: '32801',
+      coordinates: { latitude: 28.5383, longitude: -81.3792 },
+      expectedProviders: 5,
+      expectedPricingMatches: 3
+    },
+    {
+      name: 'Austin, TX',
+      zipCode: '78701', 
+      coordinates: { latitude: 30.2672, longitude: -97.7431 },
+      expectedProviders: 8,
+      expectedPricingMatches: 5
+    }
+  ],
+  
+  commonProcedures: [
+    { code: '99213', description: 'Office visit - established patient', expectedRange: [150, 350] },
+    { code: '99214', description: 'Office visit - detailed', expectedRange: [200, 450] },
+    { code: '99291', description: 'Critical care - first hour', expectedRange: [400, 800] },
+    { code: '99282', description: 'Emergency department visit', expectedRange: [300, 600] }
+  ],
+  
+  affordabilityScenarios: [
+    { filter: 'free', maxExpectedPrice: 0, description: 'Free clinics and charity care' },
+    { filter: 'low_cost', maxExpectedPrice: 200, description: 'Community health centers' },
+    { filter: 'moderate', maxExpectedPrice: 500, description: 'Standard cash prices' }
+  ]
+};
+
+describe('Google Maps + Turquoise Health Integration', () => {
+  
+  beforeAll(async () => {
+    console.log('Starting Google Maps + Turquoise Health integration tests');
+    console.log(`Rate limiter status:`, testRateLimiter.getStatus());
+  });
+
+  describe('Provider Search with Pricing Correlation', () => {
+    
+    test('finds providers and correlates with pricing data', async () => {
+      const testLocation = INTEGRATION_TEST_CONFIG.testLocations[0];
+      
+      const integrationTest = async (model) => {
+        console.log(`Testing provider-pricing correlation in ${testLocation.name} using ${model}`);
+        
+        // Step 1: Search for healthcare providers
+        const providerResults = await mockGoogleMapsSearch({
+          location: testLocation.coordinates,
+          facilityTypes: ['hospital', 'urgent_care', 'primary_care'],
+          radius: 10000,
+          maxResults: 10
+        });
+        
+        // Step 2: Get pricing data for the area
+        const pricingResults = await mockTurquoiseHealthPricing({
+          zipCode: testLocation.zipCode,
+          procedures: INTEGRATION_TEST_CONFIG.commonProcedures.map(p => p.code)
+        });
+        
+        // Step 3: Correlate providers with pricing
+        const correlatedData = await correlateProviersWithPricing(
+          providerResults.providers,
+          pricingResults.pricingData
+        );
+        
+        return {
+          location: testLocation.name,
+          providersFound: providerResults.providers.length,
+          pricingRecordsFound: pricingResults.pricingData.length,
+          correlationSuccess: correlatedData.matchedProviders.length > 0,
+          matchedProviders: correlatedData.matchedProviders.length,
+          averageMatchConfidence: correlatedData.averageConfidence,
+          affordableOptionsFound: correlatedData.affordableOptions.length,
+          model
+        };
+      };
+
+      const result = await rateLimitedApiCall(integrationTest, 'precision');
+      
+      expect(result.providersFound).toBeGreaterThanOrEqual(testLocation.expectedProviders);
+      expect(result.pricingRecordsFound).toBeGreaterThan(0);
+      expect(result.correlationSuccess).toBe(true);
+      expect(result.matchedProviders).toBeGreaterThanOrEqual(testLocation.expectedPricingMatches);
+      expect(result.averageMatchConfidence).toBeGreaterThan(0.7);
+      
+    }, 30000);
+
+    test('validates pricing accuracy for different facility types', async () => {
+      const facilityTypes = ['hospital', 'urgent_care', 'primary_care'];
+      
+      const facilityPricingTest = async (model) => {
+        console.log(`Testing facility-specific pricing accuracy using ${model}`);
+        
+        const results = {};
+        
+        for (const facilityType of facilityTypes) {
+          // Get providers of specific type
+          const providers = await mockGoogleMapsSearch({
+            location: INTEGRATION_TEST_CONFIG.testLocations[0].coordinates,
+            facilityTypes: [facilityType],
+            radius: 15000,
+            maxResults: 5
+          });
+          
+          // Get relevant pricing for this facility type
+          const procedureCodes = getProcedureCodesForFacilityType(facilityType);
+          const pricing = await mockTurquoiseHealthPricing({
+            zipCode: INTEGRATION_TEST_CONFIG.testLocations[0].zipCode,
+            procedures: procedureCodes,
+            facilityTypeFilter: facilityType
+          });
+          
+          results[facilityType] = {
+            providerCount: providers.providers.length,
+            averagePrice: calculateAveragePrice(pricing.pricingData),
+            priceRange: calculatePriceRange(pricing.pricingData),
+            validPriceRecords: pricing.pricingData.filter(p => p.cashRate > 0).length
+          };
+        }
+        
+        return { results, model };
+      };
+
+      const result = await rateLimitedApiCall(facilityPricingTest, 'precision');
+      
+      // Validate expected price patterns
+      expect(result.results.hospital.averagePrice).toBeGreaterThan(result.results.urgent_care.averagePrice);
+      expect(result.results.urgent_care.averagePrice).toBeGreaterThan(result.results.primary_care.averagePrice);
+      
+      // Ensure all facility types have valid pricing data
+      Object.values(result.results).forEach(facilityResult => {
+        expect(facilityResult.validPriceRecords).toBeGreaterThan(0);
+        expect(facilityResult.averagePrice).toBeGreaterThan(50); // Minimum reasonable price
+        expect(facilityResult.averagePrice).toBeLessThan(2000); // Maximum reasonable price
+      });
+      
+    }, 25000);
+  });
+
+  describe('Affordable Healthcare Provider Discovery', () => {
+    
+    test('validates complete affordable care workflow', async () => {
+      const workflowTest = async (model) => {
+        console.log(`Testing complete affordable care discovery workflow using ${model}`);
+        
+        const testScenario = {
+          userInput: {
+            zipCode: '32801',
+            symptoms: ['headache', 'fever'],
+            duration: '2 days',
+            insuranceStatus: 'uninsured',
+            budgetConstraint: 200
+          }
+        };
+        
+        // Step 1: Geocode user location
+        const locationData = await mockGeocoding(testScenario.userInput.zipCode);
+        
+        // Step 2: Search for affordable providers
+        const providerSearch = await mockGoogleMapsSearch({
+          location: locationData.coordinates,
+          facilityTypes: ['urgent_care', 'primary_care', 'clinic'],
+          affordabilityFilter: 'low_cost',
+          radius: 20000,
+          maxResults: 15
+        });
+        
+        // Step 3: Get pricing for relevant procedures
+        const procedureCodes = ['99213', '99214']; // Office visits
+        const pricingData = await mockTurquoiseHealthPricing({
+          zipCode: testScenario.userInput.zipCode,
+          procedures: procedureCodes
+        });
+        
+        // Step 4: Filter by budget constraint
+        const affordableOptions = filterProvidersByBudget(
+          providerSearch.providers,
+          pricingData.pricingData,
+          testScenario.userInput.budgetConstraint
+        );
+        
+        // Step 5: Rank by affordability and distance
+        const rankedOptions = rankAffordableProviders(
+          affordableOptions,
+          locationData.coordinates
+        );
+        
+        return {
+          userZipCode: testScenario.userInput.zipCode,
+          totalProvidersFound: providerSearch.providers.length,
+          affordableOptionsFound: affordableOptions.length,
+          topRecommendation: rankedOptions[0],
+          averagePrice: calculateAveragePrice(affordableOptions.map(p => p.pricing)),
+          maxDistanceMiles: Math.max(...rankedOptions.map(p => p.distance)),
+          budgetCompliant: rankedOptions.every(p => p.pricing.cashRate <= testScenario.userInput.budgetConstraint),
+          model
+        };
+      };
+
+      const result = await rateLimitedApiCall(workflowTest, 'volume');
+      
+      expect(result.totalProvidersFound).toBeGreaterThan(0);
+      expect(result.affordableOptionsFound).toBeGreaterThan(0);
+      expect(result.topRecommendation).toBeDefined();
+      expect(result.budgetCompliant).toBe(true);
+      expect(result.averagePrice).toBeLessThanOrEqual(200);
+      expect(result.maxDistanceMiles).toBeLessThan(25); // Within reasonable distance
+      
+    }, 35000);
+
+    test('handles edge cases in affordable care discovery', async () => {
+      const edgeCasesTest = async (model) => {
+        console.log(`Testing affordable care discovery edge cases using ${model}`);
+        
+        const edgeCases = [
+          {
+            name: 'rural_area',
+            zipCode: '32757', // Rural Florida
+            expectedBehavior: 'expand_search_radius'
+          },
+          {
+            name: 'high_cost_area',
+            zipCode: '10001', // Manhattan
+            expectedBehavior: 'show_travel_options'
+          },
+          {
+            name: 'no_pricing_data',
+            zipCode: '99999', // Invalid zip
+            expectedBehavior: 'graceful_degradation'
+          }
+        ];
+        
+        const results = {};
+        
+        for (const edgeCase of edgeCases) {
+          try {
+            const providerSearch = await mockGoogleMapsSearch({
+              location: await mockGeocoding(edgeCase.zipCode),
+              facilityTypes: ['urgent_care', 'primary_care'],
+              affordabilityFilter: 'low_cost',
+              radius: 30000, // Larger radius for edge cases
+              maxResults: 20
+            });
+            
+            const pricingData = await mockTurquoiseHealthPricing({
+              zipCode: edgeCase.zipCode,
+              procedures: ['99213']
+            });
+            
+            results[edgeCase.name] = {
+              providersFound: providerSearch.providers.length,
+              pricingRecordsFound: pricingData.pricingData.length,
+              handledGracefully: true,
+              errorMessage: null
+            };
+            
+          } catch (error) {
+            results[edgeCase.name] = {
+              providersFound: 0,
+              pricingRecordsFound: 0,
+              handledGracefully: error.message.includes('graceful'),
+              errorMessage: error.message
+            };
+          }
+        }
+        
+        return { edgeCaseResults: results, model };
+      };
+
+      const result = await rateLimitedApiCall(edgeCasesTest, 'speed');
+      
+      // Verify graceful handling of all edge cases
+      Object.values(result.edgeCaseResults).forEach(caseResult => {
+        expect(caseResult.handledGracefully).toBe(true);
+      });
+      
+    }, 40000);
+  });
+
+  describe('Data Quality and Consistency', () => {
+    
+    test('validates data consistency between services', async () => {
+      const consistencyTest = async (model) => {
+        console.log(`Testing data consistency between Google Maps and Turquoise Health using ${model}`);
+        
+        const testZipCode = '32801';
+        
+        // Get provider data from Google Maps
+        const mapsData = await mockGoogleMapsSearch({
+          location: { latitude: 28.5383, longitude: -81.3792 },
+          facilityTypes: ['hospital'],
+          radius: 10000,
+          maxResults: 10
+        });
+        
+        // Get pricing data from Turquoise Health
+        const pricingData = await mockTurquoiseHealthPricing({
+          zipCode: testZipCode,
+          procedures: ['99213', '99214']
+        });
+        
+        // Check for data quality issues
+        const qualityMetrics = {
+          mapsDataQuality: validateGoogleMapsData(mapsData.providers),
+          pricingDataQuality: validateTurquoiseHealthData(pricingData.pricingData),
+          geographicConsistency: validateGeographicConsistency(mapsData.providers, testZipCode),
+          priceReasonableness: validatePriceReasonableness(pricingData.pricingData)
+        };
+        
+        return { qualityMetrics, model };
+      };
+
+      const result = await rateLimitedApiCall(consistencyTest, 'precision');
+      
+      expect(result.qualityMetrics.mapsDataQuality.score).toBeGreaterThan(0.8);
+      expect(result.qualityMetrics.pricingDataQuality.score).toBeGreaterThan(0.8);
+      expect(result.qualityMetrics.geographicConsistency.withinExpectedRadius).toBe(true);
+      expect(result.qualityMetrics.priceReasonableness.outlierCount).toBeLessThan(2);
+      
+    }, 20000);
+  });
+});
+
+// Mock implementation functions
+
+async function mockGoogleMapsSearch({ location, facilityTypes, radius, affordabilityFilter, maxResults }) {
+  await new Promise(resolve => setTimeout(resolve, 150)); // Simulate API delay
+  
+  const baseProviders = [
+    {
+      id: 'orlando-regional',
+      name: 'Orlando Regional Medical Center',
+      address: '52 W Underwood St, Orlando, FL',
+      location: { latitude: 28.5421, longitude: -81.3790 },
+      distance: 0.8,
+      rating: 4.2,
+      facilityTypes: ['hospital'],
+      priceLevel: 'PRICE_LEVEL_MODERATE'
+    },
+    {
+      id: 'adventhealth-centra',
+      name: 'AdventHealth Centra Care',
+      address: '12500 S Orange Blossom Trl, Orlando, FL',
+      location: { latitude: 28.4158, longitude: -81.3947 },
+      distance: 3.2,
+      rating: 3.8,
+      facilityTypes: ['urgent_care'],
+      priceLevel: 'PRICE_LEVEL_INEXPENSIVE'
+    },
+    {
+      id: 'community-health',
+      name: 'Community Health Centers',
+      address: '123 Health Way, Orlando, FL',
+      location: { latitude: 28.5200, longitude: -81.3600 },
+      distance: 2.1,
+      rating: 4.0,
+      facilityTypes: ['primary_care', 'clinic'],
+      priceLevel: 'PRICE_LEVEL_FREE'
+    }
+  ];
+  
+  // Filter by facility types
+  let filtered = baseProviders.filter(p => 
+    facilityTypes.some(type => p.facilityTypes.includes(type))
+  );
+  
+  // Apply affordability filter
+  if (affordabilityFilter && affordabilityFilter !== 'any') {
+    const affordableLevels = {
+      'free': ['PRICE_LEVEL_FREE'],
+      'low_cost': ['PRICE_LEVEL_FREE', 'PRICE_LEVEL_INEXPENSIVE'],
+      'moderate': ['PRICE_LEVEL_FREE', 'PRICE_LEVEL_INEXPENSIVE', 'PRICE_LEVEL_MODERATE']
+    };
+    
+    const allowedLevels = affordableLevels[affordabilityFilter] || [];
+    filtered = filtered.filter(p => allowedLevels.includes(p.priceLevel));
+  }
+  
+  return {
+    providers: filtered.slice(0, maxResults),
+    searchMetadata: {
+      radius,
+      facilityTypes,
+      affordabilityFilter,
+      resultsFound: filtered.length
+    }
+  };
+}
+
+async function mockTurquoiseHealthPricing({ zipCode, procedures, facilityTypeFilter }) {
+  await new Promise(resolve => setTimeout(resolve, 200)); // Simulate API delay
+  
+  const basePricingData = procedures.flatMap(procedureCode => [
+    {
+      billingCode: procedureCode,
+      description: getProcedureDescription(procedureCode),
+      providerName: 'Orlando Regional Medical Center',
+      cashRate: procedureCode === '99213' ? 189 : 245,
+      negotiatedRate: procedureCode === '99213' ? 150 : 200,
+      setting: 'hospital',
+      facilityType: 'hospital'
+    },
+    {
+      billingCode: procedureCode,
+      description: getProcedureDescription(procedureCode),
+      providerName: 'AdventHealth Centra Care',
+      cashRate: procedureCode === '99213' ? 165 : 210,
+      negotiatedRate: procedureCode === '99213' ? 130 : 175,
+      setting: 'urgent_care',
+      facilityType: 'urgent_care'
+    },
+    {
+      billingCode: procedureCode,
+      description: getProcedureDescription(procedureCode),
+      providerName: 'Community Health Centers',
+      cashRate: procedureCode === '99213' ? 75 : 120,
+      negotiatedRate: procedureCode === '99213' ? 50 : 90,
+      setting: 'clinic',
+      facilityType: 'primary_care'
+    }
+  ]);
+  
+  // Filter by facility type if specified
+  let filtered = facilityTypeFilter 
+    ? basePricingData.filter(p => p.facilityType === facilityTypeFilter)
+    : basePricingData;
+  
+  return {
+    pricingData: filtered,
+    searchMetadata: {
+      zipCode,
+      procedures,
+      facilityTypeFilter,
+      recordsFound: filtered.length
+    }
+  };
+}
+
+async function mockGeocoding(zipCode) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  const zipCoordMap = {
+    '32801': { latitude: 28.5383, longitude: -81.3792 },
+    '78701': { latitude: 30.2672, longitude: -97.7431 },
+    '32757': { latitude: 28.7663, longitude: -81.2456 }, // Rural FL
+    '10001': { latitude: 40.7505, longitude: -73.9934 }  // Manhattan
+  };
+  
+  if (zipCode === '99999') {
+    throw new Error('graceful degradation: invalid zip code');
+  }
+  
+  return {
+    coordinates: zipCoordMap[zipCode] || { latitude: 39.8283, longitude: -98.5795 },
+    formattedAddress: `${zipCode}, United States`
+  };
+}
+
+async function correlateProviersWithPricing(providers, pricingData) {
+  const matchedProviders = [];
+  let totalConfidence = 0;
+  
+  providers.forEach(provider => {
+    const pricingMatches = pricingData.filter(pricing => 
+      pricing.providerName.toLowerCase().includes(provider.name.toLowerCase().split(' ')[0]) ||
+      provider.name.toLowerCase().includes(pricing.providerName.toLowerCase().split(' ')[0])
+    );
+    
+    if (pricingMatches.length > 0) {
+      const confidence = pricingMatches.length > 1 ? 0.9 : 0.7;
+      matchedProviders.push({
+        provider,
+        pricing: pricingMatches[0],
+        confidence
+      });
+      totalConfidence += confidence;
+    }
+  });
+  
+  const affordableOptions = matchedProviders.filter(match => 
+    match.pricing.cashRate <= 250 // Affordable threshold
+  );
+  
+  return {
+    matchedProviders,
+    averageConfidence: matchedProviders.length > 0 ? totalConfidence / matchedProviders.length : 0,
+    affordableOptions
+  };
+}
+
+function getProcedureCodesForFacilityType(facilityType) {
+  const codeMap = {
+    'hospital': ['99213', '99214', '99291', '99282'],
+    'urgent_care': ['99213', '99214', '99282'],
+    'primary_care': ['99213', '99214']
+  };
+  
+  return codeMap[facilityType] || ['99213'];
+}
+
+function getProcedureDescription(code) {
+  const descriptions = {
+    '99213': 'Office visit - established patient',
+    '99214': 'Office visit - detailed', 
+    '99291': 'Critical care - first hour',
+    '99282': 'Emergency department visit'
+  };
+  
+  return descriptions[code] || 'Medical procedure';
+}
+
+function calculateAveragePrice(pricingData) {
+  const prices = pricingData.map(p => p.cashRate || p.pricing?.cashRate).filter(p => p > 0);
+  return prices.length > 0 ? prices.reduce((sum, price) => sum + price, 0) / prices.length : 0;
+}
+
+function calculatePriceRange(pricingData) {
+  const prices = pricingData.map(p => p.cashRate).filter(p => p > 0);
+  return prices.length > 0 ? { min: Math.min(...prices), max: Math.max(...prices) } : null;
+}
+
+function filterProvidersByBudget(providers, pricingData, budgetConstraint) {
+  return providers.map(provider => {
+    const pricing = pricingData.find(p => 
+      p.providerName.toLowerCase().includes(provider.name.toLowerCase().split(' ')[0])
+    );
+    
+    return pricing && pricing.cashRate <= budgetConstraint ? { provider, pricing } : null;
+  }).filter(Boolean);
+}
+
+function rankAffordableProviders(affordableOptions, userLocation) {
+  return affordableOptions
+    .map(option => ({
+      ...option,
+      distance: calculateDistance(userLocation, option.provider.location),
+      affordabilityScore: (300 - option.pricing.cashRate) / 300 // Higher score for lower price
+    }))
+    .sort((a, b) => {
+      // Weight affordability 70%, distance 30%
+      const scoreA = (a.affordabilityScore * 0.7) + ((10 - Math.min(a.distance, 10)) / 10 * 0.3);
+      const scoreB = (b.affordabilityScore * 0.7) + ((10 - Math.min(b.distance, 10)) / 10 * 0.3);
+      return scoreB - scoreA;
+    });
+}
+
+function calculateDistance(point1, point2) {
+  const R = 6371; // Earth's radius in km
+  const dLat = (point2.latitude - point1.latitude) * Math.PI / 180;
+  const dLon = (point2.longitude - point1.longitude) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(point1.latitude * Math.PI / 180) * Math.cos(point2.latitude * Math.PI / 180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c * 0.621371; // Convert to miles
+}
+
+function validateGoogleMapsData(providers) {
+  let score = 0;
+  let total = 0;
+  
+  providers.forEach(provider => {
+    if (provider.name && provider.name.length > 0) score++;
+    if (provider.location && provider.location.latitude && provider.location.longitude) score++;
+    if (provider.rating && provider.rating > 0) score++;
+    total += 3;
+  });
+  
+  return { score: total > 0 ? score / total : 0, issues: [] };
+}
+
+function validateTurquoiseHealthData(pricingData) {
+  let score = 0;
+  let total = 0;
+  
+  pricingData.forEach(pricing => {
+    if (pricing.billingCode && pricing.billingCode.length > 0) score++;
+    if (pricing.cashRate && pricing.cashRate > 0) score++;
+    if (pricing.providerName && pricing.providerName.length > 0) score++;
+    total += 3;
+  });
+  
+  return { score: total > 0 ? score / total : 0, issues: [] };
+}
+
+function validateGeographicConsistency(providers, zipCode) {
+  // Simplified geographic validation
+  const expectedStates = { '32801': 'FL', '78701': 'TX' };
+  const expectedState = expectedStates[zipCode];
+  
+  return {
+    withinExpectedRadius: true,
+    stateConsistency: expectedState ? providers.every(p => 
+      p.address?.includes(expectedState) !== false
+    ) : true
+  };
+}
+
+function validatePriceReasonableness(pricingData) {
+  const prices = pricingData.map(p => p.cashRate).filter(p => p > 0);
+  const mean = prices.reduce((sum, price) => sum + price, 0) / prices.length;
+  const stdDev = Math.sqrt(prices.reduce((sum, price) => sum + Math.pow(price - mean, 2), 0) / prices.length);
+  
+  const outliers = prices.filter(price => Math.abs(price - mean) > 2 * stdDev);
+  
+  return {
+    outlierCount: outliers.length,
+    meanPrice: mean,
+    standardDeviation: stdDev,
+    reasonable: outliers.length <= 1
+  };
+}

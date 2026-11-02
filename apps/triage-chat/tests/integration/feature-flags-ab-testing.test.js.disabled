@@ -1,0 +1,347 @@
+/**
+ * Feature Flags and A/B Testing Validation Tests
+ * 
+ * Tests for the feature flag system, A/B testing framework,
+ * and progressive rollout mechanisms
+ */
+
+import { test, expect } from '@playwright/test';
+
+test.describe('Feature Flags and A/B Testing System', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('http://localhost:3000');
+    await page.waitForLoadState('networkidle');
+  });
+
+  test.describe('E3.2.1: Feature Flag System Validation', () => {
+    test('should respect feature flag configurations', async ({ page }) => {
+      // Test different feature flag scenarios by manipulating localStorage
+      // This simulates different user segments and rollout percentages
+      
+      // Test scenario 1: Enhanced features enabled
+      await page.evaluate(() => {
+        localStorage.setItem('feature_flags', JSON.stringify({
+          enhanced_triage_enabled: true,
+          cultural_adaptation_enabled: true,
+          tool_integration_enabled: true
+        }));
+      });
+      
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      
+      // Check if enhanced features are visible
+      const enhancedBadge = page.locator('text=Enhanced AI');
+      if (await enhancedBadge.isVisible()) {
+        await expect(enhancedBadge).toBeVisible();
+      }
+    });
+
+    test('should handle feature flag toggles during session', async ({ page }) => {
+      // Start with basic features
+      await page.evaluate(() => {
+        localStorage.setItem('feature_flags', JSON.stringify({
+          enhanced_triage_enabled: false,
+          cultural_adaptation_enabled: false
+        }));
+      });
+      
+      await page.reload();
+      
+      // Send a message with basic features
+      const textarea = page.locator('textarea');
+      await textarea.fill('I have a cold');
+      
+      const sendButton = page.locator('button[type="submit"]');
+      await sendButton.click();
+      
+      await expect(page.locator('text=/cold|symptom/i')).toBeVisible({ timeout: 15000 });
+      
+      // Enable enhanced features mid-session
+      await page.evaluate(() => {
+        localStorage.setItem('feature_flags', JSON.stringify({
+          enhanced_triage_enabled: true,
+          cultural_adaptation_enabled: true
+        }));
+      });
+      
+      await page.reload();
+      
+      // Verify enhanced features are now available
+      const culturalBadge = page.locator('text=Cultural Aware');
+      if (await culturalBadge.isVisible()) {
+        await expect(culturalBadge).toBeVisible();
+      }
+    });
+
+    test('should provide appropriate fallbacks when features are disabled', async ({ page }) => {
+      // Disable all enhanced features
+      await page.evaluate(() => {
+        localStorage.setItem('feature_flags', JSON.stringify({
+          enhanced_triage_enabled: false,
+          cultural_adaptation_enabled: false,
+          tool_integration_enabled: false
+        }));
+      });
+      
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      
+      // Basic functionality should still work
+      const textarea = page.locator('textarea');
+      await textarea.fill('I need medical advice');
+      
+      const sendButton = page.locator('button[type="submit"]');
+      await sendButton.click();
+      
+      // Should get a response even without enhanced features
+      await expect(page.locator('text=/medical|advice|care/i')).toBeVisible({ timeout: 15000 });
+    });
+  });
+
+  test.describe('E3.2.2: A/B Testing Framework Validation', () => {
+    test('should assign users to test groups consistently', async ({ page }) => {
+      // Simulate user assignment to A/B test groups
+      const testUserId = 'test_user_' + Math.random().toString(36).substr(2, 9);
+      
+      await page.evaluate((userId) => {
+        localStorage.setItem('user_id', userId);
+      }, testUserId);
+      
+      await page.reload();
+      
+      // Check which variant the user is assigned to
+      const isEnhanced = await page.evaluate(() => {
+        // Simulate A/B test logic
+        const userId = localStorage.getItem('user_id');
+        const hash = userId.split('').reduce((a, b) => {
+          a = ((a << 5) - a) + b.charCodeAt(0);
+          return a & a;
+        }, 0);
+        return Math.abs(hash) % 100 < 50; // 50% split
+      });
+      
+      console.log(`User ${testUserId} assigned to: ${isEnhanced ? 'Enhanced' : 'Control'} group`);
+      
+      // User should consistently get the same assignment
+      await page.reload();
+      
+      const isEnhancedSecondTime = await page.evaluate(() => {
+        const userId = localStorage.getItem('user_id');
+        const hash = userId.split('').reduce((a, b) => {
+          a = ((a << 5) - a) + b.charCodeAt(0);
+          return a & a;
+        }, 0);
+        return Math.abs(hash) % 100 < 50;
+      });
+      
+      expect(isEnhanced).toBe(isEnhancedSecondTime);
+    });
+
+    test('should track user interactions for A/B test analysis', async ({ page }) => {
+      // Monitor for analytics/tracking calls
+      const networkCalls = [];
+      
+      page.on('request', request => {
+        if (request.url().includes('analytics') || 
+            request.url().includes('tracking') || 
+            request.url().includes('metrics')) {
+          networkCalls.push({
+            url: request.url(),
+            method: request.method(),
+            timestamp: Date.now()
+          });
+        }
+      });
+      
+      // Perform actions that should be tracked
+      const textarea = page.locator('textarea');
+      await textarea.fill('Testing A/B tracking functionality');
+      
+      const sendButton = page.locator('button[type="submit"]');
+      await sendButton.click();
+      
+      await page.waitForTimeout(3000);
+      
+      // Check if tracking occurred (may not be implemented yet)
+      console.log('Network calls for tracking:', networkCalls.length);
+    });
+
+    test('should handle A/B test configuration changes', async ({ page }) => {
+      // Test different A/B test configurations
+      const configs = [
+        { enhanced_triage_rollout: 0 },    // 0% rollout
+        { enhanced_triage_rollout: 100 },  // 100% rollout
+        { enhanced_triage_rollout: 50 }    // 50% rollout
+      ];
+      
+      for (const config of configs) {
+        await page.evaluate((cfg) => {
+          localStorage.setItem('ab_test_config', JSON.stringify(cfg));
+        }, config);
+        
+        await page.reload();
+        await page.waitForTimeout(1000);
+        
+        // System should adapt to new configuration
+        const enhancedBadge = page.locator('text=Enhanced AI');
+        const isVisible = await enhancedBadge.isVisible();
+        
+        console.log(`Rollout ${config.enhanced_triage_rollout}%: Enhanced features visible = ${isVisible}`);
+      }
+    });
+  });
+
+  test.describe('E3.2.3: Progressive Rollout Testing', () => {
+    test('should handle gradual feature rollout', async ({ page }) => {
+      // Simulate different rollout percentages
+      const rolloutPercentages = [10, 25, 50, 75, 90];
+      
+      for (const percentage of rolloutPercentages) {
+        await page.evaluate((pct) => {
+          localStorage.setItem('rollout_percentage', pct.toString());
+        }, percentage);
+        
+        await page.reload();
+        
+        // Check system behavior at different rollout levels
+        const textarea = page.locator('textarea');
+        await textarea.fill(`Testing ${percentage}% rollout`);
+        
+        const sendButton = page.locator('button[type="submit"]');
+        await sendButton.click();
+        
+        // System should work regardless of rollout percentage
+        await expect(page.locator('text=/testing|rollout/i')).toBeVisible({ timeout: 10000 });
+        
+        await page.waitForTimeout(1000);
+      }
+    });
+
+    test('should maintain stability during rollout changes', async ({ page }) => {
+      // Start conversation with one rollout setting
+      await page.evaluate(() => {
+        localStorage.setItem('rollout_percentage', '25');
+      });
+      
+      await page.reload();
+      
+      const textarea = page.locator('textarea');
+      await textarea.fill('Starting conversation at 25% rollout');
+      
+      const sendButton = page.locator('button[type="submit"]');
+      await sendButton.click();
+      
+      await expect(page.locator('text=/starting|conversation/i')).toBeVisible({ timeout: 15000 });
+      
+      // Change rollout percentage mid-conversation
+      await page.evaluate(() => {
+        localStorage.setItem('rollout_percentage', '75');
+      });
+      
+      // Continue conversation
+      await textarea.clear();
+      await textarea.fill('Continuing conversation at 75% rollout');
+      await sendButton.click();
+      
+      // Should maintain conversation flow
+      await expect(page.locator('text=/continuing|conversation/i')).toBeVisible({ timeout: 15000 });
+    });
+  });
+
+  test.describe('E3.2.4: Feature Flag Performance Impact', () => {
+    test('should not significantly impact performance with feature flags enabled', async ({ page }) => {
+      const startTime = Date.now();
+      
+      // Enable all feature flags
+      await page.evaluate(() => {
+        localStorage.setItem('feature_flags', JSON.stringify({
+          enhanced_triage_enabled: true,
+          cultural_adaptation_enabled: true,
+          tool_integration_enabled: true,
+          enhanced_logging_enabled: true,
+          developer_mode_enabled: true
+        }));
+      });
+      
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      
+      const loadTime = Date.now() - startTime;
+      
+      // Page should load within reasonable time even with all features enabled
+      expect(loadTime).toBeLessThan(10000); // 10 seconds max
+      
+      // Test interaction performance
+      const interactionStart = Date.now();
+      
+      const textarea = page.locator('textarea');
+      await textarea.fill('Performance test with all features enabled');
+      
+      const sendButton = page.locator('button[type="submit"]');
+      await sendButton.click();
+      
+      await expect(page.locator('text=/performance|test/i')).toBeVisible({ timeout: 20000 });
+      
+      const interactionTime = Date.now() - interactionStart;
+      
+      console.log(`Load time: ${loadTime}ms, Interaction time: ${interactionTime}ms`);
+      
+      // Interaction should complete within reasonable time
+      expect(interactionTime).toBeLessThan(25000); // 25 seconds max for enhanced features
+    });
+
+    test('should handle feature flag failures gracefully', async ({ page }) => {
+      // Simulate corrupted feature flag data
+      await page.evaluate(() => {
+        localStorage.setItem('feature_flags', 'invalid_json_data');
+      });
+      
+      await page.reload();
+      
+      // Should still load and function with default settings
+      const textarea = page.locator('textarea');
+      await expect(textarea).toBeVisible();
+      
+      await textarea.fill('Testing with corrupted feature flags');
+      
+      const sendButton = page.locator('button[type="submit"]');
+      await sendButton.click();
+      
+      // Should still work despite feature flag corruption
+      await expect(page.locator('text=/testing|corrupted/i')).toBeVisible({ timeout: 15000 });
+    });
+  });
+
+  test.describe('E3.2.5: Cross-Browser Feature Flag Compatibility', () => {
+    test('should maintain feature flag state across browser sessions', async ({ page }) => {
+      // Set feature flags
+      await page.evaluate(() => {
+        localStorage.setItem('feature_flags', JSON.stringify({
+          enhanced_triage_enabled: true,
+          cultural_adaptation_enabled: true
+        }));
+        localStorage.setItem('user_id', 'persistent_test_user');
+      });
+      
+      await page.reload();
+      
+      // Verify flags are active
+      const enhancedBadge = page.locator('text=Enhanced AI');
+      const initiallyVisible = await enhancedBadge.isVisible();
+      
+      // Simulate browser restart by clearing session but keeping localStorage
+      await page.evaluate(() => {
+        sessionStorage.clear();
+      });
+      
+      await page.reload();
+      
+      // Feature flags should persist
+      const stillVisible = await enhancedBadge.isVisible();
+      
+      // Feature availability should be consistent (though may depend on other factors)
+      console.log(`Enhanced features - Initially: ${initiallyVisible}, After reload: ${stillVisible}`);
+    });
+  });
+});

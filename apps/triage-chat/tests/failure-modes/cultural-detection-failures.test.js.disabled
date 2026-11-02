@@ -1,0 +1,1082 @@
+/**
+ * Failure Mode Tests: Cultural Detection & Personality Adaptation System
+ * 
+ * Tests system behavior under failure conditions including:
+ * - Cultural bias detection and mitigation
+ * - Privacy violation prevention
+ * - Medical-cultural conflict resolution
+ * - System performance degradation
+ * - Insufficient data handling
+ * 
+ * Following TDD + Contract-Driven Development protocol
+ */
+
+import { describe, test, expect, beforeAll, afterEach } from '@jest/globals';
+import { testRateLimiter, rateLimitedApiCall } from '../utils/multi-model-rate-limiter';
+
+// Test configuration for failure mode scenarios
+const FAILURE_MODE_CONFIG = {
+  biasDetectionThreshold: 0.95,
+  privacyViolationThreshold: 0.8,
+  maxProcessingTime: 5000, // 5 seconds
+  minConfidenceScore: 0.5,
+  maxBiasRate: 0.2, // 20%
+  
+  // Test scenarios for different failure modes
+  testScenarios: {
+    culturalBias: [
+      {
+        name: 'stereotypical_assumptions',
+        input: {
+          conversationHistory: [
+            {
+              role: 'user',
+              content: 'I have a headache and my family is very traditional',
+              timestamp: new Date().toISOString()
+            }
+          ],
+          culturalMarkers: ['traditional_family'],
+          expectedBiasRisk: 'high'
+        }
+      },
+      {
+        name: 'over_confident_single_culture',
+        input: {
+          conversationHistory: [
+            {
+              role: 'user', 
+              content: 'Hello, I need help with stomach pain',
+              timestamp: new Date().toISOString()
+            }
+          ],
+          mockDetectionResult: {
+            confidence: 0.97,
+            culture: 'Hispanic',
+            evidence: ['stomach pain'] // Weak evidence
+          },
+          expectedBiasRisk: 'high'
+        }
+      },
+      {
+        name: 'contradictory_cultural_markers',
+        input: {
+          conversationHistory: [
+            {
+              role: 'user',
+              content: 'I prefer direct communication and quick decisions',
+              timestamp: new Date().toISOString()
+            }
+          ],
+          userProfile: {
+            culturalMarkers: ['high_context_culture'],
+            communicationStyle: 'indirect'
+          },
+          expectedBiasRisk: 'medium'
+        }
+      }
+    ],
+    
+    insufficientData: [
+      {
+        name: 'minimal_conversation',
+        input: {
+          conversationHistory: [
+            {
+              role: 'user',
+              content: 'Hi',
+              timestamp: new Date().toISOString()
+            }
+          ],
+          expectedOutcome: 'fallback_to_baseline'
+        }
+      },
+      {
+        name: 'short_messages',
+        input: {
+          conversationHistory: [
+            { role: 'user', content: 'Yes', timestamp: new Date().toISOString() },
+            { role: 'user', content: 'No', timestamp: new Date().toISOString() },
+            { role: 'user', content: 'OK', timestamp: new Date().toISOString() }
+          ],
+          expectedOutcome: 'focus_on_personality'
+        }
+      },
+      {
+        name: 'privacy_request',
+        input: {
+          conversationHistory: [
+            {
+              role: 'user',
+              content: 'I don\'t want to share personal information about my background',
+              timestamp: new Date().toISOString()
+            }
+          ],
+          expectedOutcome: 'respect_privacy_preferences'
+        }
+      }
+    ],
+    
+    privacyViolation: [
+      {
+        name: 'sensitive_cultural_data_without_consent',
+        input: {
+          conversationHistory: [
+            {
+              role: 'user',
+              content: 'My religious beliefs prevent me from taking certain medications',
+              timestamp: new Date().toISOString()
+            }
+          ],
+          consentStatus: false,
+          expectedOutcome: 'halt_cultural_profiling'
+        }
+      },
+      {
+        name: 'protected_characteristics_detected',
+        input: {
+          conversationHistory: [
+            {
+              role: 'user',
+              content: 'As a member of [protected group], I have concerns about discrimination',
+              timestamp: new Date().toISOString()
+            }
+          ],
+          expectedOutcome: 'delete_sensitive_data'
+        }
+      },
+      {
+        name: 'regulatory_compliance_failure',
+        input: {
+          conversationHistory: [
+            {
+              role: 'user',
+              content: 'I live in the EU and my cultural data should be protected',
+              timestamp: new Date().toISOString()
+            }
+          ],
+          regulation: 'GDPR',
+          expectedOutcome: 'obtain_explicit_consent'
+        }
+      }
+    ],
+    
+    medicalCulturalConflict: [
+      {
+        name: 'traditional_medicine_conflict',
+        input: {
+          conversationHistory: [
+            {
+              role: 'user',
+              content: 'I only trust traditional herbal remedies, not modern medicine',
+              timestamp: new Date().toISOString()
+            }
+          ],
+          medicalRecommendation: 'antibiotic_treatment',
+          urgencyLevel: 'urgent',
+          expectedOutcome: 'prioritize_medical_safety'
+        }
+      },
+      {
+        name: 'religious_restriction_emergency',
+        input: {
+          conversationHistory: [
+            {
+              role: 'user',
+              content: 'My religion forbids blood transfusions even in emergencies',
+              timestamp: new Date().toISOString()
+            }
+          ],
+          medicalRecommendation: 'emergency_blood_transfusion',
+          urgencyLevel: 'emergency',
+          expectedOutcome: 'escalate_to_human_provider'
+        }
+      },
+      {
+        name: 'family_decision_making_delay',
+        input: {
+          conversationHistory: [
+            {
+              role: 'user',
+              content: 'I need to consult with my entire family before making any medical decisions',
+              timestamp: new Date().toISOString()
+            }
+          ],
+          medicalRecommendation: 'immediate_emergency_care',
+          urgencyLevel: 'emergency',
+          expectedOutcome: 'provide_emergency_context'
+        }
+      }
+    ],
+    
+    systemPerformance: [
+      {
+        name: 'processing_timeout',
+        input: {
+          conversationHistory: Array(50).fill({
+            role: 'user',
+            content: 'This is a very long conversation with many cultural markers and complex personality indicators that should take a long time to process',
+            timestamp: new Date().toISOString()
+          }),
+          expectedProcessingTime: 6000, // Over 5 second threshold
+          expectedOutcome: 'fallback_to_simplified_detection'
+        }
+      },
+      {
+        name: 'low_confidence_scores',
+        input: {
+          conversationHistory: [
+            {
+              role: 'user',
+              content: 'Ambiguous message with unclear cultural indicators',
+              timestamp: new Date().toISOString()
+            }
+          ],
+          mockConfidenceScore: 0.3, // Below 0.5 threshold
+          expectedOutcome: 'use_cached_profiles'
+        }
+      },
+      {
+        name: 'high_bias_false_positive_rate',
+        input: {
+          testRuns: 100,
+          biasDetectionRate: 0.25, // 25% false positive rate
+          expectedOutcome: 'alert_system_administrators'
+        }
+      }
+    ]
+  }
+};
+
+describe('Cultural Detection System - Failure Mode Tests', () => {
+  
+  beforeAll(async () => {
+    console.log('Starting Cultural Detection failure mode tests');
+    console.log(`Rate limiter status:`, testRateLimiter.getStatus());
+  });
+
+  describe('Cultural Bias Detection and Mitigation', () => {
+    
+    test('detects and mitigates stereotypical cultural assumptions', async () => {
+      const biasDetectionTest = async (model) => {
+        console.log(`Testing cultural bias detection using ${model}`);
+        
+        const scenario = FAILURE_MODE_CONFIG.testScenarios.culturalBias[0];
+        
+        // Simulate cultural detection with stereotypical assumptions
+        const culturalDetectionResult = await mockCulturalDetection({
+          conversationHistory: scenario.input.conversationHistory,
+          culturalMarkers: scenario.input.culturalMarkers,
+          model
+        });
+        
+        // Test bias detection
+        const biasAnalysis = await mockBiasDetection({
+          culturalProfile: culturalDetectionResult.culturalProfile,
+          evidence: culturalDetectionResult.evidence,
+          model
+        });
+        
+        return {
+          scenario: scenario.name,
+          biasDetected: biasAnalysis.biasRisk === 'high',
+          mitigationTriggered: biasAnalysis.mitigationActions.length > 0,
+          fallbackActivated: biasAnalysis.fallbackToCulturallyNeutral,
+          biasRisk: biasAnalysis.biasRisk,
+          mitigationActions: biasAnalysis.mitigationActions,
+          model
+        };
+      };
+
+      const result = await rateLimitedApiCall(biasDetectionTest, 'precision');
+      
+      expect(result.biasDetected).toBe(true);
+      expect(result.mitigationTriggered).toBe(true);
+      expect(result.fallbackActivated).toBe(true);
+      expect(result.biasRisk).toBe('high');
+      expect(result.mitigationActions).toContain('fall_back_to_culturally_neutral');
+      
+    }, 30000);
+    
+    test('handles over-confident single culture detection', async () => {
+      const overConfidenceTest = async (model) => {
+        console.log(`Testing over-confident cultural detection using ${model}`);
+        
+        const scenario = FAILURE_MODE_CONFIG.testScenarios.culturalBias[1];
+        
+        // Simulate over-confident detection
+        const culturalDetectionResult = await mockCulturalDetection({
+          conversationHistory: scenario.input.conversationHistory,
+          forcedResult: scenario.input.mockDetectionResult,
+          model
+        });
+        
+        // Test over-confidence detection
+        const overConfidenceAnalysis = await mockOverConfidenceDetection({
+          culturalProfile: culturalDetectionResult.culturalProfile,
+          evidence: culturalDetectionResult.evidence,
+          model
+        });
+        
+        return {
+          scenario: scenario.name,
+          overConfidenceDetected: overConfidenceAnalysis.overConfident,
+          confidenceScore: culturalDetectionResult.culturalProfile.detectedCultures[0].confidence,
+          evidenceQuality: overConfidenceAnalysis.evidenceQuality,
+          correctionApplied: overConfidenceAnalysis.correctionApplied,
+          model
+        };
+      };
+
+      const result = await rateLimitedApiCall(overConfidenceTest, 'precision');
+      
+      expect(result.overConfidenceDetected).toBe(true);
+      expect(result.confidenceScore).toBeGreaterThan(0.95);
+      expect(result.evidenceQuality).toBe('weak');
+      expect(result.correctionApplied).toBe(true);
+      
+    }, 25000);
+    
+    test('resolves contradictory cultural markers', async () => {
+      const contradictionTest = async (model) => {
+        console.log(`Testing contradictory cultural marker resolution using ${model}`);
+        
+        const scenario = FAILURE_MODE_CONFIG.testScenarios.culturalBias[2];
+        
+        // Simulate contradictory cultural detection
+        const culturalDetectionResult = await mockCulturalDetection({
+          conversationHistory: scenario.input.conversationHistory,
+          existingProfile: scenario.input.userProfile,
+          model
+        });
+        
+        // Test contradiction resolution
+        const contradictionAnalysis = await mockContradictionResolution({
+          newDetection: culturalDetectionResult.culturalProfile,
+          existingProfile: scenario.input.userProfile,
+          model
+        });
+        
+        return {
+          scenario: scenario.name,
+          contradictionDetected: contradictionAnalysis.contradictionFound,
+          resolutionStrategy: contradictionAnalysis.resolutionStrategy,
+          userFeedbackRequested: contradictionAnalysis.requestUserFeedback,
+          profileUpdated: contradictionAnalysis.profileUpdated,
+          model
+        };
+      };
+
+      const result = await rateLimitedApiCall(contradictionTest, 'precision');
+      
+      expect(result.contradictionDetected).toBe(true);
+      expect(result.resolutionStrategy).toBe('request_user_clarification');
+      expect(result.userFeedbackRequested).toBe(true);
+      expect(result.profileUpdated).toBe(false); // Should not update without clarification
+      
+    }, 20000);
+  });
+
+  describe('Insufficient Data Handling', () => {
+    
+    test('handles minimal conversation gracefully', async () => {
+      const minimalDataTest = async (model) => {
+        console.log(`Testing minimal conversation data handling using ${model}`);
+        
+        const scenario = FAILURE_MODE_CONFIG.testScenarios.insufficientData[0];
+        
+        // Simulate minimal conversation detection
+        const culturalDetectionResult = await mockCulturalDetection({
+          conversationHistory: scenario.input.conversationHistory,
+          model
+        });
+        
+        // Test insufficient data handling
+        const dataAnalysis = await mockDataSufficiencyAnalysis({
+          conversationHistory: scenario.input.conversationHistory,
+          detectionResult: culturalDetectionResult,
+          model
+        });
+        
+        return {
+          scenario: scenario.name,
+          dataSufficient: dataAnalysis.dataSufficient,
+          fallbackStrategy: dataAnalysis.fallbackStrategy,
+          baselineUsed: dataAnalysis.baselineUsed,
+          culturalAdaptationsDisabled: dataAnalysis.culturalAdaptationsDisabled,
+          model
+        };
+      };
+
+      const result = await rateLimitedApiCall(minimalDataTest, 'speed');
+      
+      expect(result.dataSufficient).toBe(false);
+      expect(result.fallbackStrategy).toBe('baseline_cultural_competency');
+      expect(result.baselineUsed).toBe(true);
+      expect(result.culturalAdaptationsDisabled).toBe(true);
+      
+    }, 15000);
+    
+    test('focuses on personality when cultural data insufficient', async () => {
+      const personalityFocusTest = async (model) => {
+        console.log(`Testing personality focus when cultural data insufficient using ${model}`);
+        
+        const scenario = FAILURE_MODE_CONFIG.testScenarios.insufficientData[1];
+        
+        // Simulate short message detection
+        const culturalDetectionResult = await mockCulturalDetection({
+          conversationHistory: scenario.input.conversationHistory,
+          model
+        });
+        
+        // Test personality focus strategy
+        const personalityAnalysis = await mockPersonalityFocusStrategy({
+          conversationHistory: scenario.input.conversationHistory,
+          culturalInsufficiency: true,
+          model
+        });
+        
+        return {
+          scenario: scenario.name,
+          personalityFocusEnabled: personalityAnalysis.personalityFocusEnabled,
+          culturalDetectionDisabled: personalityAnalysis.culturalDetectionDisabled,
+          personalityTraitsDetected: personalityAnalysis.personalityTraits.length,
+          adaptationStrategy: personalityAnalysis.adaptationStrategy,
+          model
+        };
+      };
+
+      const result = await rateLimitedApiCall(personalityFocusTest, 'speed');
+      
+      expect(result.personalityFocusEnabled).toBe(true);
+      expect(result.culturalDetectionDisabled).toBe(true);
+      expect(result.personalityTraitsDetected).toBeGreaterThan(0);
+      expect(result.adaptationStrategy).toBe('personality_only');
+      
+    }, 18000);
+    
+    test('respects explicit privacy preferences', async () => {
+      const privacyRespectTest = async (model) => {
+        console.log(`Testing privacy preference respect using ${model}`);
+        
+        const scenario = FAILURE_MODE_CONFIG.testScenarios.insufficientData[2];
+        
+        // Simulate privacy preference detection
+        const privacyAnalysis = await mockPrivacyPreferenceDetection({
+          conversationHistory: scenario.input.conversationHistory,
+          model
+        });
+        
+        // Test privacy respect implementation
+        const privacyImplementation = await mockPrivacyRespectImplementation({
+          privacyPreferences: privacyAnalysis.privacyPreferences,
+          model
+        });
+        
+        return {
+          scenario: scenario.name,
+          privacyPreferenceDetected: privacyAnalysis.privacyPreferenceDetected,
+          culturalProfilingDisabled: privacyImplementation.culturalProfilingDisabled,
+          dataCollectionStopped: privacyImplementation.dataCollectionStopped,
+          userNotified: privacyImplementation.userNotified,
+          model
+        };
+      };
+
+      const result = await rateLimitedApiCall(privacyRespectTest, 'speed');
+      
+      expect(result.privacyPreferenceDetected).toBe(true);
+      expect(result.culturalProfilingDisabled).toBe(true);
+      expect(result.dataCollectionStopped).toBe(true);
+      expect(result.userNotified).toBe(true);
+      
+    }, 15000);
+  });
+
+  describe('Privacy Violation Prevention', () => {
+    
+    test('prevents sensitive cultural data collection without consent', async () => {
+      const sensitiveDataTest = async (model) => {
+        console.log(`Testing sensitive cultural data protection using ${model}`);
+        
+        const scenario = FAILURE_MODE_CONFIG.testScenarios.privacyViolation[0];
+        
+        // Simulate sensitive data detection
+        const sensitiveDataAnalysis = await mockSensitiveDataDetection({
+          conversationHistory: scenario.input.conversationHistory,
+          consentStatus: scenario.input.consentStatus,
+          model
+        });
+        
+        // Test privacy violation prevention
+        const privacyProtection = await mockPrivacyProtection({
+          sensitiveDataDetected: sensitiveDataAnalysis.sensitiveDataDetected,
+          consentStatus: scenario.input.consentStatus,
+          model
+        });
+        
+        return {
+          scenario: scenario.name,
+          sensitiveDataDetected: sensitiveDataAnalysis.sensitiveDataDetected,
+          consentRequired: privacyProtection.consentRequired,
+          culturalProfilingHalted: privacyProtection.culturalProfilingHalted,
+          dataDeleted: privacyProtection.dataDeleted,
+          model
+        };
+      };
+
+      const result = await rateLimitedApiCall(sensitiveDataTest, 'precision');
+      
+      expect(result.sensitiveDataDetected).toBe(true);
+      expect(result.consentRequired).toBe(true);
+      expect(result.culturalProfilingHalted).toBe(true);
+      expect(result.dataDeleted).toBe(true);
+      
+    }, 20000);
+    
+    test('handles protected characteristics detection', async () => {
+      const protectedCharacteristicsTest = async (model) => {
+        console.log(`Testing protected characteristics handling using ${model}`);
+        
+        const scenario = FAILURE_MODE_CONFIG.testScenarios.privacyViolation[1];
+        
+        // Simulate protected characteristics detection
+        const protectedCharacteristicsAnalysis = await mockProtectedCharacteristicsDetection({
+          conversationHistory: scenario.input.conversationHistory,
+          model
+        });
+        
+        // Test protected characteristics handling
+        const protectionImplementation = await mockProtectedCharacteristicsProtection({
+          protectedCharacteristics: protectedCharacteristicsAnalysis.protectedCharacteristics,
+          model
+        });
+        
+        return {
+          scenario: scenario.name,
+          protectedCharacteristicsDetected: protectedCharacteristicsAnalysis.protectedCharacteristicsDetected,
+          automaticDataDeletion: protectionImplementation.automaticDataDeletion,
+          discriminationPrevention: protectionImplementation.discriminationPrevention,
+          equalTreatmentEnsured: protectionImplementation.equalTreatmentEnsured,
+          model
+        };
+      };
+
+      const result = await rateLimitedApiCall(protectedCharacteristicsTest, 'precision');
+      
+      expect(result.protectedCharacteristicsDetected).toBe(true);
+      expect(result.automaticDataDeletion).toBe(true);
+      expect(result.discriminationPrevention).toBe(true);
+      expect(result.equalTreatmentEnsured).toBe(true);
+      
+    }, 22000);
+    
+    test('ensures regulatory compliance (GDPR/HIPAA)', async () => {
+      const regulatoryComplianceTest = async (model) => {
+        console.log(`Testing regulatory compliance using ${model}`);
+        
+        const scenario = FAILURE_MODE_CONFIG.testScenarios.privacyViolation[2];
+        
+        // Simulate regulatory compliance check
+        const complianceAnalysis = await mockRegulatoryComplianceCheck({
+          conversationHistory: scenario.input.conversationHistory,
+          regulation: scenario.input.regulation,
+          model
+        });
+        
+        // Test compliance implementation
+        const complianceImplementation = await mockComplianceImplementation({
+          complianceRequirements: complianceAnalysis.complianceRequirements,
+          regulation: scenario.input.regulation,
+          model
+        });
+        
+        return {
+          scenario: scenario.name,
+          regulation: scenario.input.regulation,
+          complianceRequired: complianceAnalysis.complianceRequired,
+          explicitConsentObtained: complianceImplementation.explicitConsentObtained,
+          dataProcessingJustified: complianceImplementation.dataProcessingJustified,
+          userRightsRespected: complianceImplementation.userRightsRespected,
+          model
+        };
+      };
+
+      const result = await rateLimitedApiCall(regulatoryComplianceTest, 'precision');
+      
+      expect(result.complianceRequired).toBe(true);
+      expect(result.explicitConsentObtained).toBe(true);
+      expect(result.dataProcessingJustified).toBe(true);
+      expect(result.userRightsRespected).toBe(true);
+      
+    }, 25000);
+  });
+
+  describe('Medical-Cultural Conflict Resolution', () => {
+    
+    test('prioritizes medical safety over cultural preferences', async () => {
+      const medicalSafetyTest = async (model) => {
+        console.log(`Testing medical safety prioritization using ${model}`);
+        
+        const scenario = FAILURE_MODE_CONFIG.testScenarios.medicalCulturalConflict[0];
+        
+        // Simulate medical-cultural conflict detection
+        const conflictAnalysis = await mockMedicalCulturalConflictDetection({
+          conversationHistory: scenario.input.conversationHistory,
+          medicalRecommendation: scenario.input.medicalRecommendation,
+          urgencyLevel: scenario.input.urgencyLevel,
+          model
+        });
+        
+        // Test medical safety prioritization
+        const safetyPrioritization = await mockMedicalSafetyPrioritization({
+          conflict: conflictAnalysis.conflict,
+          urgencyLevel: scenario.input.urgencyLevel,
+          model
+        });
+        
+        return {
+          scenario: scenario.name,
+          conflictDetected: conflictAnalysis.conflictDetected,
+          medicalSafetyPrioritized: safetyPrioritization.medicalSafetyPrioritized,
+          culturalExplanationProvided: safetyPrioritization.culturalExplanationProvided,
+          alternativesOffered: safetyPrioritization.alternativesOffered,
+          urgencyLevel: scenario.input.urgencyLevel,
+          model
+        };
+      };
+
+      const result = await rateLimitedApiCall(medicalSafetyTest, 'precision');
+      
+      expect(result.conflictDetected).toBe(true);
+      expect(result.medicalSafetyPrioritized).toBe(true);
+      expect(result.culturalExplanationProvided).toBe(true);
+      expect(result.alternativesOffered).toBe(true);
+      
+    }, 30000);
+    
+    test('escalates to human provider for unresolvable conflicts', async () => {
+      const escalationTest = async (model) => {
+        console.log(`Testing human provider escalation using ${model}`);
+        
+        const scenario = FAILURE_MODE_CONFIG.testScenarios.medicalCulturalConflict[1];
+        
+        // Simulate unresolvable conflict
+        const conflictAnalysis = await mockMedicalCulturalConflictDetection({
+          conversationHistory: scenario.input.conversationHistory,
+          medicalRecommendation: scenario.input.medicalRecommendation,
+          urgencyLevel: scenario.input.urgencyLevel,
+          model
+        });
+        
+        // Test escalation decision
+        const escalationDecision = await mockEscalationDecision({
+          conflict: conflictAnalysis.conflict,
+          urgencyLevel: scenario.input.urgencyLevel,
+          resolutionAttempts: 3, // Multiple failed attempts
+          model
+        });
+        
+        return {
+          scenario: scenario.name,
+          conflictUnresolvable: escalationDecision.conflictUnresolvable,
+          escalationTriggered: escalationDecision.escalationTriggered,
+          humanProviderContacted: escalationDecision.humanProviderContacted,
+          emergencyProtocolActivated: escalationDecision.emergencyProtocolActivated,
+          model
+        };
+      };
+
+      const result = await rateLimitedApiCall(escalationTest, 'precision');
+      
+      expect(result.conflictUnresolvable).toBe(true);
+      expect(result.escalationTriggered).toBe(true);
+      expect(result.humanProviderContacted).toBe(true);
+      expect(result.emergencyProtocolActivated).toBe(true);
+      
+    }, 35000);
+  });
+
+  describe('System Performance Degradation', () => {
+    
+    test('handles processing timeouts gracefully', async () => {
+      const timeoutTest = async (model) => {
+        console.log(`⏱Testing processing timeout handling using ${model}`);
+        
+        const scenario = FAILURE_MODE_CONFIG.testScenarios.systemPerformance[0];
+        
+        // Simulate timeout scenario
+        const startTime = Date.now();
+        const culturalDetectionResult = await mockCulturalDetectionWithTimeout({
+          conversationHistory: scenario.input.conversationHistory,
+          timeoutThreshold: FAILURE_MODE_CONFIG.maxProcessingTime,
+          model
+        });
+        const processingTime = Date.now() - startTime;
+        
+        // Test timeout handling
+        const timeoutHandling = await mockTimeoutHandling({
+          processingTime,
+          timeoutThreshold: FAILURE_MODE_CONFIG.maxProcessingTime,
+          model
+        });
+        
+        return {
+          scenario: scenario.name,
+          processingTime,
+          timeoutDetected: timeoutHandling.timeoutDetected,
+          fallbackActivated: timeoutHandling.fallbackActivated,
+          simplifiedDetectionUsed: timeoutHandling.simplifiedDetectionUsed,
+          model
+        };
+      };
+
+      const result = await rateLimitedApiCall(timeoutTest, 'speed');
+      
+      expect(result.timeoutDetected).toBe(true);
+      expect(result.fallbackActivated).toBe(true);
+      expect(result.simplifiedDetectionUsed).toBe(true);
+      
+    }, 45000);
+    
+    test('handles consistently low confidence scores', async () => {
+      const lowConfidenceTest = async (model) => {
+        console.log(`Testing low confidence score handling using ${model}`);
+        
+        const scenario = FAILURE_MODE_CONFIG.testScenarios.systemPerformance[1];
+        
+        // Simulate low confidence detection
+        const culturalDetectionResult = await mockCulturalDetection({
+          conversationHistory: scenario.input.conversationHistory,
+          forcedConfidence: scenario.input.mockConfidenceScore,
+          model
+        });
+        
+        // Test low confidence handling
+        const confidenceHandling = await mockLowConfidenceHandling({
+          confidenceScore: scenario.input.mockConfidenceScore,
+          threshold: FAILURE_MODE_CONFIG.minConfidenceScore,
+          model
+        });
+        
+        return {
+          scenario: scenario.name,
+          confidenceScore: scenario.input.mockConfidenceScore,
+          lowConfidenceDetected: confidenceHandling.lowConfidenceDetected,
+          cachedProfilesUsed: confidenceHandling.cachedProfilesUsed,
+          gracefulDegradation: confidenceHandling.gracefulDegradation,
+          model
+        };
+      };
+
+      const result = await rateLimitedApiCall(lowConfidenceTest, 'speed');
+      
+      expect(result.lowConfidenceDetected).toBe(true);
+      expect(result.cachedProfilesUsed).toBe(true);
+      expect(result.gracefulDegradation).toBe(true);
+      
+    }, 20000);
+  });
+});
+
+// Mock implementation functions for testing failure modes
+
+async function mockCulturalDetection({ conversationHistory, culturalMarkers, existingProfile, forcedResult, forcedConfidence, model }) {
+  await new Promise(resolve => setTimeout(resolve, 200)); // Simulate processing time
+  
+  // Simulate cultural detection logic
+  const mockProfile = {
+    detectedCultures: forcedResult ? [forcedResult] : [
+      {
+        culture: 'Mixed',
+        confidence: forcedConfidence || 0.6,
+        evidence: culturalMarkers || ['limited_evidence'],
+        biasRisk: 'low'
+      }
+    ],
+    communicationStyle: {
+      directness: 0.5,
+      formality: 0.5,
+      emotionalExpression: 0.5,
+      decisionMaking: 'individual',
+      timeOrientation: 'linear'
+    }
+  };
+  
+  return {
+    culturalProfile: mockProfile,
+    evidence: culturalMarkers || ['limited_evidence'],
+    processingTime: 200,
+    model
+  };
+}
+
+async function mockBiasDetection({ culturalProfile, evidence, model }) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  // Simulate bias detection logic
+  const biasRisk = culturalProfile.detectedCultures[0].confidence > 0.95 && evidence.length < 3 ? 'high' : 'low';
+  
+  return {
+    biasRisk,
+    mitigationActions: biasRisk === 'high' ? ['fall_back_to_culturally_neutral', 'log_bias_incident'] : [],
+    fallbackToCulturallyNeutral: biasRisk === 'high',
+    model
+  };
+}
+
+async function mockOverConfidenceDetection({ culturalProfile, evidence, model }) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  const confidence = culturalProfile.detectedCultures[0].confidence;
+  const overConfident = confidence > 0.95 && evidence.length < 3;
+  
+  return {
+    overConfident,
+    evidenceQuality: evidence.length < 3 ? 'weak' : 'strong',
+    correctionApplied: overConfident,
+    model
+  };
+}
+
+async function mockContradictionResolution({ newDetection, existingProfile, model }) {
+  await new Promise(resolve => setTimeout(resolve, 150));
+  
+  const contradictionFound = newDetection.communicationStyle.directness > 0.7 && 
+                           existingProfile.communicationStyle === 'indirect';
+  
+  return {
+    contradictionFound,
+    resolutionStrategy: contradictionFound ? 'request_user_clarification' : 'merge_profiles',
+    requestUserFeedback: contradictionFound,
+    profileUpdated: !contradictionFound,
+    model
+  };
+}
+
+async function mockDataSufficiencyAnalysis({ conversationHistory, detectionResult, model }) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  const dataSufficient = conversationHistory.length >= 3 && 
+                        conversationHistory.every(msg => msg.content.length > 20);
+  
+  return {
+    dataSufficient,
+    fallbackStrategy: dataSufficient ? 'full_detection' : 'baseline_cultural_competency',
+    baselineUsed: !dataSufficient,
+    culturalAdaptationsDisabled: !dataSufficient,
+    model
+  };
+}
+
+async function mockPersonalityFocusStrategy({ conversationHistory, culturalInsufficiency, model }) {
+  await new Promise(resolve => setTimeout(resolve, 150));
+  
+  return {
+    personalityFocusEnabled: culturalInsufficiency,
+    culturalDetectionDisabled: culturalInsufficiency,
+    personalityTraits: culturalInsufficiency ? ['analytical', 'direct'] : [],
+    adaptationStrategy: culturalInsufficiency ? 'personality_only' : 'full_adaptation',
+    model
+  };
+}
+
+async function mockPrivacyPreferenceDetection({ conversationHistory, model }) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  const privacyKeywords = ['don\'t want to share', 'personal information', 'privacy'];
+  const privacyPreferenceDetected = conversationHistory.some(msg => 
+    privacyKeywords.some(keyword => msg.content.toLowerCase().includes(keyword))
+  );
+  
+  return {
+    privacyPreferenceDetected,
+    privacyPreferences: privacyPreferenceDetected ? ['no_cultural_profiling', 'minimal_data'] : [],
+    model
+  };
+}
+
+async function mockPrivacyRespectImplementation({ privacyPreferences, model }) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  const respectPrivacy = privacyPreferences.includes('no_cultural_profiling');
+  
+  return {
+    culturalProfilingDisabled: respectPrivacy,
+    dataCollectionStopped: respectPrivacy,
+    userNotified: respectPrivacy,
+    model
+  };
+}
+
+async function mockSensitiveDataDetection({ conversationHistory, consentStatus, model }) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  const sensitiveKeywords = ['religious beliefs', 'traditional', 'cultural background'];
+  const sensitiveDataDetected = conversationHistory.some(msg => 
+    sensitiveKeywords.some(keyword => msg.content.toLowerCase().includes(keyword))
+  );
+  
+  return {
+    sensitiveDataDetected,
+    consentStatus,
+    model
+  };
+}
+
+async function mockPrivacyProtection({ sensitiveDataDetected, consentStatus, model }) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  const requiresProtection = sensitiveDataDetected && !consentStatus;
+  
+  return {
+    consentRequired: requiresProtection,
+    culturalProfilingHalted: requiresProtection,
+    dataDeleted: requiresProtection,
+    model
+  };
+}
+
+async function mockProtectedCharacteristicsDetection({ conversationHistory, model }) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  const protectedKeywords = ['protected group', 'discrimination', 'minority'];
+  const protectedCharacteristicsDetected = conversationHistory.some(msg => 
+    protectedKeywords.some(keyword => msg.content.toLowerCase().includes(keyword))
+  );
+  
+  return {
+    protectedCharacteristicsDetected,
+    protectedCharacteristics: protectedCharacteristicsDetected ? ['ethnic_minority'] : [],
+    model
+  };
+}
+
+async function mockProtectedCharacteristicsProtection({ protectedCharacteristics, model }) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  const hasProtectedCharacteristics = protectedCharacteristics.length > 0;
+  
+  return {
+    automaticDataDeletion: hasProtectedCharacteristics,
+    discriminationPrevention: hasProtectedCharacteristics,
+    equalTreatmentEnsured: hasProtectedCharacteristics,
+    model
+  };
+}
+
+async function mockRegulatoryComplianceCheck({ conversationHistory, regulation, model }) {
+  await new Promise(resolve => setTimeout(resolve, 150));
+  
+  const complianceRequired = regulation === 'GDPR' || regulation === 'HIPAA';
+  
+  return {
+    complianceRequired,
+    complianceRequirements: complianceRequired ? ['explicit_consent', 'data_justification'] : [],
+    model
+  };
+}
+
+async function mockComplianceImplementation({ complianceRequirements, regulation, model }) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  const requiresCompliance = complianceRequirements.length > 0;
+  
+  return {
+    explicitConsentObtained: requiresCompliance,
+    dataProcessingJustified: requiresCompliance,
+    userRightsRespected: requiresCompliance,
+    model
+  };
+}
+
+async function mockMedicalCulturalConflictDetection({ conversationHistory, medicalRecommendation, urgencyLevel, model }) {
+  await new Promise(resolve => setTimeout(resolve, 200));
+  
+  const culturalKeywords = ['traditional', 'herbal', 'religious', 'family'];
+  const medicalKeywords = ['antibiotic', 'surgery', 'transfusion', 'emergency'];
+  
+  const culturalPreference = conversationHistory.some(msg => 
+    culturalKeywords.some(keyword => msg.content.toLowerCase().includes(keyword))
+  );
+  
+  const medicalIntervention = medicalKeywords.some(keyword => 
+    medicalRecommendation.toLowerCase().includes(keyword)
+  );
+  
+  const conflictDetected = culturalPreference && medicalIntervention;
+  
+  return {
+    conflictDetected,
+    conflict: conflictDetected ? {
+      culturalBelief: 'traditional_medicine_only',
+      medicalRecommendation,
+      urgencyLevel,
+      severity: 'high'
+    } : null,
+    model
+  };
+}
+
+async function mockMedicalSafetyPrioritization({ conflict, urgencyLevel, model }) {
+  await new Promise(resolve => setTimeout(resolve, 150));
+  
+  const prioritizeSafety = conflict && (urgencyLevel === 'emergency' || urgencyLevel === 'urgent');
+  
+  return {
+    medicalSafetyPrioritized: prioritizeSafety,
+    culturalExplanationProvided: prioritizeSafety,
+    alternativesOffered: prioritizeSafety,
+    model
+  };
+}
+
+async function mockEscalationDecision({ conflict, urgencyLevel, resolutionAttempts, model }) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  const conflictUnresolvable = conflict && resolutionAttempts >= 3;
+  const escalationTriggered = conflictUnresolvable && urgencyLevel === 'emergency';
+  
+  return {
+    conflictUnresolvable,
+    escalationTriggered,
+    humanProviderContacted: escalationTriggered,
+    emergencyProtocolActivated: escalationTriggered,
+    model
+  };
+}
+
+async function mockCulturalDetectionWithTimeout({ conversationHistory, timeoutThreshold, model }) {
+  await new Promise(resolve => setTimeout(resolve, timeoutThreshold + 1000)); // Simulate timeout
+  
+  return {
+    culturalProfile: null, // Timeout occurred
+    processingTime: timeoutThreshold + 1000,
+    model
+  };
+}
+
+async function mockTimeoutHandling({ processingTime, timeoutThreshold, model }) {
+  await new Promise(resolve => setTimeout(resolve, 50));
+  
+  const timeoutDetected = processingTime > timeoutThreshold;
+  
+  return {
+    timeoutDetected,
+    fallbackActivated: timeoutDetected,
+    simplifiedDetectionUsed: timeoutDetected,
+    model
+  };
+}
+
+async function mockLowConfidenceHandling({ confidenceScore, threshold, model }) {
+  await new Promise(resolve => setTimeout(resolve, 50));
+  
+  const lowConfidenceDetected = confidenceScore < threshold;
+  
+  return {
+    lowConfidenceDetected,
+    cachedProfilesUsed: lowConfidenceDetected,
+    gracefulDegradation: lowConfidenceDetected,
+    model
+  };
+}

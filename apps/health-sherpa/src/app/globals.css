@@ -1,0 +1,117 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+@layer base {
+  :root {
+    --background: 205 100% 97%; /* Light, desaturated blue (#F0F9FF) */
+    --foreground: 215 25% 25%; /* Dark Slate Blue for readability */
+
+    --card: 0 0% 100%; /* White cards */
+    --card-foreground: 215 19% 35%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 19% 35%;
+
+    --primary: 200 93% 74%; /* Sky blue (#7DD3FC) */
+    --primary-foreground: 207 73% 17%; /* Dark Blue/Black for text on primary */
+
+    --secondary: 203 100% 96%; /* #EBF8FF - Lighter blue */
+    --secondary-foreground: 215 19% 35%;
+
+    --muted: 205 100% 97%; /* Same as background for subtle elements */
+    --muted-foreground: 215 20% 45%; /* Lighter version of main foreground */
+
+    --accent: 167 88% 78%; /* Soft teal (#99F6E4) */
+    --accent-foreground: 198 89% 18%; /* Dark Teal for text on accent */
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 226 100% 94%; /* Light Gray-Blue (#E0E7FF) */
+    --input: 226 100% 94%;
+    --ring: 200 93% 74%; /* Primary color for rings */
+
+    --chart-1: 200 93% 74%;
+    --chart-2: 167 88% 78%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    --radius: 0.5rem;
+
+    /* Sidebar specific colors (can be adjusted if sidebar component is heavily used) */
+    --sidebar-background: 205 100% 95%; /* Slightly darker than main bg */
+    --sidebar-foreground: 215 19% 35%;
+    --sidebar-primary: 200 93% 74%;
+    --sidebar-primary-foreground: 207 73% 17%;
+    --sidebar-accent: 167 88% 78%;
+    --sidebar-accent-foreground: 198 89% 18%;
+    --sidebar-border: 226 100% 90%;
+    --sidebar-ring: 200 93% 74%;
+  }
+
+  .dark {
+    /* Define dark theme variables if needed in the future, for now, focusing on light theme */
+    --background: 220 15% 10%;
+    --foreground: 210 40% 98%;
+
+    --card: 220 15% 12%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 220 15% 12%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 200 85% 65%; /* Adjusted Sky blue for dark */
+    --primary-foreground: 207 73% 17%;
+
+    --secondary: 220 15% 20%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 220 15% 20%;
+    --muted-foreground: 215 16% 70%;
+
+    --accent: 167 80% 70%; /* Adjusted Soft teal for dark */
+    --accent-foreground: 198 89% 18%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 220 15% 25%;
+    --input: 220 15% 25%;
+    --ring: 200 85% 65%;
+
+    --chart-1: 200 85% 65%;
+    --chart-2: 167 80% 70%;
+
+    --sidebar-background: 220 15% 12%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 200 85% 65%;
+    --sidebar-primary-foreground: 207 73% 17%;
+    --sidebar-accent: 167 80% 70%;
+    --sidebar-accent-foreground: 198 89% 18%;
+    --sidebar-border: 220 15% 25%;
+    --sidebar-ring: 200 85% 65%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .line-clamp-6 {
+    display: -webkit-box;
+    -webkit-line-clamp: 6;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}

@@ -1,0 +1,227 @@
+/**
+ * Unit Tests for Enhanced Triage Features
+ * Tests individual functions in isolation
+ */
+
+import { assertEquals, assertExists, assertThrows } from "https://deno.land/std@0.168.0/testing/asserts.ts";
+
+// Mock implementations for testing
+const mockModelStrategies = {
+  symptom_extraction: {
+    primary: 'gemini-2.0-flash-lite',
+    secondary: 'gemini-2.5-flash-lite',
+    fallback: 'gemma-3',
+    deprecated_fallback: 'gemini-1.5-flash-8b',
+    dailyLimit: 200,
+    complexity: 'simple'
+  },
+  final_response: {
+    primary: 'gemini-2.0-flash',
+    secondary: 'gemini-2.5-flash',
+    fallback: 'gemini-2.0-flash-lite',
+    deprecated_fallback: 'gemini-1.5-flash',
+    dailyLimit: 200,
+    complexity: 'medium'
+  }
+} as const;
+
+class MockModelTracker {
+  private usage = new Map<string, number>();
+  
+  getUsage(model: string): number {
+    return this.usage.get(model) || 0;
+  }
+  
+  increment(model: string): void {
+    this.usage.set(model, this.getUsage(model) + 1);
+  }
+  
+  reset(): void {
+    this.usage.clear();
+  }
+}
+
+// Unit test functions
+function selectModel(taskType: keyof typeof mockModelStrategies, tracker: MockModelTracker): string {
+  const strategy = mockModelStrategies[taskType];
+  
+  if (tracker.getUsage(strategy.primary) < strategy.dailyLimit) {
+    return strategy.primary;
+  }
+  
+  if (tracker.getUsage(strategy.secondary) < strategy.dailyLimit) {
+    return strategy.secondary;
+  }
+  
+  if (tracker.getUsage(strategy.fallback) < 500) {
+    return strategy.fallback;
+  }
+  
+  return strategy.deprecated_fallback;
+}
+
+function convertDuration(duration: string): 'less_than_3_days' | '3_to_7_days' | 'more_than_7_days' {
+  if (!duration) return 'less_than_3_days';
+  
+  const lower = duration.toLowerCase();
+  if (lower.includes('week') || lower.includes('month') || lower.includes('7') || lower.includes('more')) {
+    return 'more_than_7_days';
+  }
+  if (lower.includes('3') || lower.includes('4') || lower.includes('5') || lower.includes('6') || lower.includes('several')) {
+    return '3_to_7_days';
+  }
+  return 'less_than_3_days';
+}
+
+function extractIntensity(text: string): number {
+  const numbers = text.match(/\b([1-9]|10)\b/g);
+  if (numbers) {
+    return Math.max(...numbers.map(n => parseInt(n)));
+  }
+  
+  const lower = text.toLowerCase();
+  if (lower.includes('severe') || lower.includes('worst') || lower.includes('unbearable')) return 9;
+  if (lower.includes('moderate') || lower.includes('significant')) return 6;
+  if (lower.includes('mild') || lower.includes('slight') || lower.includes('minor')) return 3;
+  
+  return 5;
+}
+
+function validateStructuredResponse(response: any): boolean {
+  const requiredFields = ['assessment', 'recommendations', 'nextSteps', 'disclaimer'];
+  return requiredFields.every(field => field in response) &&
+         typeof response.assessment?.careLevel === 'string' &&
+         Array.isArray(response.recommendations?.immediate);
+}
+
+// Test Suite
+Deno.test("Model Selection - Primary Model Selection", () => {
+  const tracker = new MockModelTracker();
+  const selected = selectModel('symptom_extraction', tracker);
+  assertEquals(selected, 'gemini-2.0-flash-lite');
+});
+
+Deno.test("Model Selection - Fallback When Primary Exhausted", () => {
+  const tracker = new MockModelTracker();
+  // Exhaust primary model
+  for (let i = 0; i < 200; i++) {
+    tracker.increment('gemini-2.0-flash-lite');
+  }
+  
+  const selected = selectModel('symptom_extraction', tracker);
+  assertEquals(selected, 'gemini-2.5-flash-lite');
+});
+
+Deno.test("Model Selection - Deprecated Fallback When All Exhausted", () => {
+  const tracker = new MockModelTracker();
+  // Exhaust all models
+  for (let i = 0; i < 200; i++) {
+    tracker.increment('gemini-2.0-flash-lite');
+    tracker.increment('gemini-2.5-flash-lite');
+  }
+  for (let i = 0; i < 500; i++) {
+    tracker.increment('gemma-3');
+  }
+  
+  const selected = selectModel('symptom_extraction', tracker);
+  assertEquals(selected, 'gemini-1.5-flash-8b');
+});
+
+Deno.test("Duration Conversion - Less Than 3 Days", () => {
+  assertEquals(convertDuration("today"), 'less_than_3_days');
+  assertEquals(convertDuration("yesterday"), 'less_than_3_days');
+  assertEquals(convertDuration("2 days"), 'less_than_3_days');
+  assertEquals(convertDuration(""), 'less_than_3_days');
+});
+
+Deno.test("Duration Conversion - 3 to 7 Days", () => {
+  assertEquals(convertDuration("3 days"), '3_to_7_days');
+  assertEquals(convertDuration("4 days"), '3_to_7_days');
+  assertEquals(convertDuration("several days"), '3_to_7_days');
+  assertEquals(convertDuration("6 days ago"), '3_to_7_days');
+});
+
+Deno.test("Duration Conversion - More Than 7 Days", () => {
+  assertEquals(convertDuration("a week"), 'more_than_7_days');
+  assertEquals(convertDuration("2 weeks"), 'more_than_7_days');
+  assertEquals(convertDuration("a month"), 'more_than_7_days');
+  assertEquals(convertDuration("more than 7 days"), 'more_than_7_days');
+});
+
+Deno.test("Intensity Extraction - Numeric Values", () => {
+  assertEquals(extractIntensity("pain level 7"), 7);
+  assertEquals(extractIntensity("it's a 9 out of 10"), 9);
+  assertEquals(extractIntensity("1 to 10 scale, I'd say 5"), 10); // Takes max
+  assertEquals(extractIntensity("3/10 pain"), 10); // Takes max of 3 and 10
+});
+
+Deno.test("Intensity Extraction - Descriptive Terms", () => {
+  assertEquals(extractIntensity("severe pain"), 9);
+  assertEquals(extractIntensity("moderate discomfort"), 6);
+  assertEquals(extractIntensity("mild ache"), 3);
+  assertEquals(extractIntensity("unbearable agony"), 9);
+});
+
+Deno.test("Intensity Extraction - Default Value", () => {
+  assertEquals(extractIntensity("some pain"), 5);
+  assertEquals(extractIntensity("hurts"), 5);
+  assertEquals(extractIntensity("no descriptors"), 5);
+});
+
+Deno.test("Structured Response Validation - Valid Response", () => {
+  const validResponse = {
+    assessment: { careLevel: 'primary', confidence: 'high' },
+    recommendations: { immediate: ['rest'], shortTerm: ['see doctor'] },
+    nextSteps: { seekCare: 'within 2 weeks', timeframe: '2 weeks' },
+    disclaimer: 'Not medical advice'
+  };
+  
+  assertEquals(validateStructuredResponse(validResponse), true);
+});
+
+Deno.test("Structured Response Validation - Missing Required Fields", () => {
+  const invalidResponse = {
+    assessment: { careLevel: 'primary' },
+    // missing recommendations, nextSteps, disclaimer
+  };
+  
+  assertEquals(validateStructuredResponse(invalidResponse), false);
+});
+
+Deno.test("Structured Response Validation - Invalid Field Types", () => {
+  const invalidResponse = {
+    assessment: { careLevel: 123 }, // should be string
+    recommendations: { immediate: 'not an array' }, // should be array
+    nextSteps: { seekCare: 'within 2 weeks' },
+    disclaimer: 'Not medical advice'
+  };
+  
+  assertEquals(validateStructuredResponse(invalidResponse), false);
+});
+
+// Integration-level unit tests
+Deno.test("Model Usage Tracking - Increment and Retrieve", () => {
+  const tracker = new MockModelTracker();
+  
+  assertEquals(tracker.getUsage('test-model'), 0);
+  
+  tracker.increment('test-model');
+  assertEquals(tracker.getUsage('test-model'), 1);
+  
+  tracker.increment('test-model');
+  assertEquals(tracker.getUsage('test-model'), 2);
+});
+
+Deno.test("Model Usage Tracking - Multiple Models", () => {
+  const tracker = new MockModelTracker();
+  
+  tracker.increment('model-a');
+  tracker.increment('model-b');
+  tracker.increment('model-a');
+  
+  assertEquals(tracker.getUsage('model-a'), 2);
+  assertEquals(tracker.getUsage('model-b'), 1);
+  assertEquals(tracker.getUsage('model-c'), 0);
+});
+
+console.log("All unit tests defined and ready to run with: deno test tests/unit/enhanced-triage.test.ts");

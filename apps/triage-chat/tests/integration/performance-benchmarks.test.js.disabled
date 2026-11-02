@@ -1,0 +1,538 @@
+/**
+ * Performance Benchmarks with Enhanced Features
+ * 
+ * Comprehensive performance testing for the enhanced triage system
+ * including load testing, response time analysis, and resource usage monitoring
+ */
+
+import { test, expect } from '@playwright/test';
+
+test.describe('Enhanced Triage System Performance Benchmarks', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('http://localhost:3000');
+    await page.waitForLoadState('networkidle');
+  });
+
+  test.describe('E3.4.1: Response Time Benchmarks', () => {
+    test('should meet response time SLAs for standard triage queries', async ({ page }) => {
+      const standardQueries = [
+        'I have a headache',
+        'I feel dizzy',
+        'I have a fever',
+        'My stomach hurts',
+        'I have a cough'
+      ];
+      
+      const responseTimes = [];
+      
+      for (const query of standardQueries) {
+        const startTime = performance.now();
+        
+        const textarea = page.locator('textarea');
+        await textarea.clear();
+        await textarea.fill(query);
+        
+        const sendButton = page.locator('button[type="submit"]');
+        await sendButton.click();
+        
+        // Wait for response to appear
+        await expect(page.locator('text=/headache|dizzy|fever|stomach|cough/i')).toBeVisible({ timeout: 15000 });
+        
+        const endTime = performance.now();
+        const responseTime = endTime - startTime;
+        responseTimes.push(responseTime);
+        
+        console.log(`"${query}": ${responseTime.toFixed(2)}ms`);
+        
+        // Wait between requests
+        await page.waitForTimeout(2000);
+      }
+      
+      const avgResponseTime = responseTimes.reduce((sum, time) => sum + time, 0) / responseTimes.length;
+      const maxResponseTime = Math.max(...responseTimes);
+      const minResponseTime = Math.min(...responseTimes);
+      
+      console.log(`\nStandard Query Performance:`);
+      console.log(`Average: ${avgResponseTime.toFixed(2)}ms`);
+      console.log(`Max: ${maxResponseTime.toFixed(2)}ms`);
+      console.log(`Min: ${minResponseTime.toFixed(2)}ms`);
+      
+      // SLA: Standard queries should respond within 10 seconds
+      expect(maxResponseTime).toBeLessThan(10000);
+      expect(avgResponseTime).toBeLessThan(7000);
+    });
+
+    test('should handle complex queries within acceptable time limits', async ({ page }) => {
+      const complexQueries = [
+        'I have been experiencing chest pain for the past 3 days, along with shortness of breath and fatigue. I am 45 years old with a history of high blood pressure.',
+        'My elderly mother has been confused lately, and I noticed she has been falling more often. She also seems to have trouble remembering things and gets agitated easily.',
+        'I am 8 months pregnant and have been having severe headaches, blurred vision, and swelling in my hands and feet. Should I be concerned?',
+        'My 5-year-old child has had a fever for 2 days, is not eating, and has a rash on their body. They also seem very lethargic and are not playing like usual.',
+        'I have diabetes and take medication, but lately my blood sugar has been hard to control. I also have a cut on my foot that is not healing well.'
+      ];
+      
+      const complexResponseTimes = [];
+      
+      for (const query of complexQueries) {
+        const startTime = performance.now();
+        
+        const textarea = page.locator('textarea');
+        await textarea.clear();
+        await textarea.fill(query);
+        
+        const sendButton = page.locator('button[type="submit"]');
+        await sendButton.click();
+        
+        // Wait for response to complex queries
+        await expect(page.locator('text=/pain|confused|pregnant|child|diabetes/i')).toBeVisible({ timeout: 25000 });
+        
+        const endTime = performance.now();
+        const responseTime = endTime - startTime;
+        complexResponseTimes.push(responseTime);
+        
+        console.log(`Complex query ${complexResponseTimes.length}: ${responseTime.toFixed(2)}ms`);
+        
+        // Longer wait for complex queries
+        await page.waitForTimeout(5000);
+      }
+      
+      const avgComplexTime = complexResponseTimes.reduce((sum, time) => sum + time, 0) / complexResponseTimes.length;
+      const maxComplexTime = Math.max(...complexResponseTimes);
+      
+      console.log(`\nComplex Query Performance:`);
+      console.log(`Average: ${avgComplexTime.toFixed(2)}ms`);
+      console.log(`Max: ${maxComplexTime.toFixed(2)}ms`);
+      
+      // SLA: Complex queries should respond within 20 seconds
+      expect(maxComplexTime).toBeLessThan(20000);
+      expect(avgComplexTime).toBeLessThan(15000);
+    });
+
+    test('should maintain performance with enhanced features enabled', async ({ page }) => {
+      // Enable all enhanced features
+      await page.evaluate(() => {
+        localStorage.setItem('feature_flags', JSON.stringify({
+          enhanced_triage_enabled: true,
+          cultural_adaptation_enabled: true,
+          tool_integration_enabled: true,
+          enhanced_logging_enabled: true
+        }));
+      });
+      
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      
+      const enhancedQueries = [
+        'I respectfully request guidance on my health concerns with chest discomfort',
+        'My family believes in traditional medicine, but I am worried about my symptoms',
+        'I need culturally sensitive advice about my condition while respecting my beliefs'
+      ];
+      
+      const enhancedTimes = [];
+      
+      for (const query of enhancedQueries) {
+        const startTime = performance.now();
+        
+        const textarea = page.locator('textarea');
+        await textarea.clear();
+        await textarea.fill(query);
+        
+        const sendButton = page.locator('button[type="submit"]');
+        await sendButton.click();
+        
+        await expect(page.locator('text=/guidance|traditional|cultural|respect/i')).toBeVisible({ timeout: 30000 });
+        
+        const endTime = performance.now();
+        const responseTime = endTime - startTime;
+        enhancedTimes.push(responseTime);
+        
+        console.log(`Enhanced query ${enhancedTimes.length}: ${responseTime.toFixed(2)}ms`);
+        
+        await page.waitForTimeout(3000);
+      }
+      
+      const avgEnhancedTime = enhancedTimes.reduce((sum, time) => sum + time, 0) / enhancedTimes.length;
+      const maxEnhancedTime = Math.max(...enhancedTimes);
+      
+      console.log(`\nEnhanced Features Performance:`);
+      console.log(`Average: ${avgEnhancedTime.toFixed(2)}ms`);
+      console.log(`Max: ${maxEnhancedTime.toFixed(2)}ms`);
+      
+      // SLA: Enhanced features should respond within 25 seconds
+      expect(maxEnhancedTime).toBeLessThan(25000);
+      expect(avgEnhancedTime).toBeLessThan(18000);
+    });
+  });
+
+  test.describe('E3.4.2: Concurrent User Simulation', () => {
+    test('should handle multiple rapid requests gracefully', async ({ page }) => {
+      const rapidMessages = [
+        'Quick question about fever',
+        'Also having chills',
+        'How urgent is this?',
+        'Should I see a doctor?',
+        'What can I do at home?'
+      ];
+      
+      const startTime = performance.now();
+      const promises = [];
+      
+      // Send all messages rapidly
+      for (let i = 0; i < rapidMessages.length; i++) {
+        promises.push((async (messageIndex) => {
+          const textarea = page.locator('textarea');
+          await textarea.clear();
+          await textarea.fill(rapidMessages[messageIndex]);
+          
+          const sendButton = page.locator('button[type="submit"]');
+          await sendButton.click();
+          
+          // Wait for this specific message to get a response
+          await page.waitForTimeout(2000 * (messageIndex + 1)); // Stagger waits
+          
+          return performance.now();
+        })(i));
+      }
+      
+      // Wait for all responses
+      const endTimes = await Promise.all(promises);
+      const totalTime = Math.max(...endTimes) - startTime;
+      
+      console.log(`\nRapid Request Performance:`);
+      console.log(`Total time for ${rapidMessages.length} messages: ${totalTime.toFixed(2)}ms`);
+      console.log(`Average per message: ${(totalTime / rapidMessages.length).toFixed(2)}ms`);
+      
+      // Should handle rapid requests without major performance degradation
+      expect(totalTime).toBeLessThan(60000); // 1 minute total for 5 rapid messages
+    });
+
+    test('should maintain session state during high-frequency interactions', async ({ page }) => {
+      const conversationFlow = [
+        'I have been having headaches',
+        'They started 3 days ago',
+        'The pain is on the right side',
+        'It gets worse with bright lights',
+        'I also feel nauseous sometimes'
+      ];
+      
+      let conversationContext = '';
+      
+      for (let i = 0; i < conversationFlow.length; i++) {
+        const message = conversationFlow[i];
+        
+        const textarea = page.locator('textarea');
+        await textarea.clear();
+        await textarea.fill(message);
+        
+        const sendButton = page.locator('button[type="submit"]');
+        await sendButton.click();
+        
+        // Wait for response
+        await expect(page.locator('text=/headache|pain|light|nausea/i')).toBeVisible({ timeout: 15000 });
+        
+        // Get the latest response
+        const response = await page.locator('[role="assistant"]:last-of-type').textContent();
+        conversationContext += ` ${response}`;
+        
+        // Later messages should reference earlier context
+        if (i > 2) {
+          const hasContext = conversationContext.toLowerCase().includes('headache') && 
+                            conversationContext.toLowerCase().includes('pain');
+          expect(hasContext).toBe(true);
+        }
+        
+        console.log(`Message ${i + 1}: Context maintained`);
+        
+        // Short wait between messages
+        await page.waitForTimeout(1000);
+      }
+    });
+  });
+
+  test.describe('E3.4.3: Resource Usage Monitoring', () => {
+    test('should monitor memory usage during extended sessions', async ({ page }) => {
+      // Enable performance monitoring
+      await page.evaluate(() => {
+        window.performanceMetrics = {
+          startTime: performance.now(),
+          interactions: 0
+        };
+      });
+      
+      const sessionMessages = Array.from({ length: 10 }, (_, i) => 
+        `Health question number ${i + 1}: I have various symptoms to discuss`
+      );
+      
+      for (let i = 0; i < sessionMessages.length; i++) {
+        const memoryBefore = await page.evaluate(() => {
+          if (performance.memory) {
+            return {
+              used: performance.memory.usedJSHeapSize,
+              total: performance.memory.totalJSHeapSize
+            };
+          }
+          return null;
+        });
+        
+        const textarea = page.locator('textarea');
+        await textarea.clear();
+        await textarea.fill(sessionMessages[i]);
+        
+        const sendButton = page.locator('button[type="submit"]');
+        await sendButton.click();
+        
+        await expect(page.locator('text=/health|question|symptoms/i')).toBeVisible({ timeout: 15000 });
+        
+        const memoryAfter = await page.evaluate(() => {
+          if (performance.memory) {
+            return {
+              used: performance.memory.usedJSHeapSize,
+              total: performance.memory.totalJSHeapSize
+            };
+          }
+          return null;
+        });
+        
+        if (memoryBefore && memoryAfter) {
+          const memoryIncrease = memoryAfter.used - memoryBefore.used;
+          console.log(`Message ${i + 1}: Memory increase: ${(memoryIncrease / 1024 / 1024).toFixed(2)}MB`);
+          
+          // Memory usage shouldn't grow excessively
+          expect(memoryAfter.used).toBeLessThan(memoryBefore.used * 1.5); // No more than 50% increase per interaction
+        }
+        
+        await page.waitForTimeout(2000);
+      }
+    });
+
+    test('should handle long-running sessions without degradation', async ({ page }) => {
+      const longSessionStart = performance.now();
+      const baselineResponseTimes = [];
+      const laterResponseTimes = [];
+      
+      // Baseline measurements (first 3 interactions)
+      for (let i = 0; i < 3; i++) {
+        const startTime = performance.now();
+        
+        const textarea = page.locator('textarea');
+        await textarea.clear();
+        await textarea.fill(`Baseline health question ${i + 1}`);
+        
+        const sendButton = page.locator('button[type="submit"]');
+        await sendButton.click();
+        
+        await expect(page.locator('text=/baseline|health|question/i')).toBeVisible({ timeout: 15000 });
+        
+        const responseTime = performance.now() - startTime;
+        baselineResponseTimes.push(responseTime);
+        
+        await page.waitForTimeout(2000);
+      }
+      
+      // Simulate extended session activity
+      for (let i = 0; i < 7; i++) {
+        const textarea = page.locator('textarea');
+        await textarea.clear();
+        await textarea.fill(`Extended session question ${i + 1} about various health topics`);
+        
+        const sendButton = page.locator('button[type="submit"]');
+        await sendButton.click();
+        
+        await expect(page.locator('text=/extended|session|health/i')).toBeVisible({ timeout: 15000 });
+        
+        await page.waitForTimeout(1500);
+      }
+      
+      // Later measurements (after extended session)
+      for (let i = 0; i < 3; i++) {
+        const startTime = performance.now();
+        
+        const textarea = page.locator('textarea');
+        await textarea.clear();
+        await textarea.fill(`Later session health question ${i + 1}`);
+        
+        const sendButton = page.locator('button[type="submit"]');
+        await sendButton.click();
+        
+        await expect(page.locator('text=/later|session|health/i')).toBeVisible({ timeout: 15000 });
+        
+        const responseTime = performance.now() - startTime;
+        laterResponseTimes.push(responseTime);
+        
+        await page.waitForTimeout(2000);
+      }
+      
+      const baselineAvg = baselineResponseTimes.reduce((sum, time) => sum + time, 0) / baselineResponseTimes.length;
+      const laterAvg = laterResponseTimes.reduce((sum, time) => sum + time, 0) / laterResponseTimes.length;
+      const degradationPercent = ((laterAvg - baselineAvg) / baselineAvg) * 100;
+      
+      console.log(`\nLong Session Performance:`);
+      console.log(`Baseline average: ${baselineAvg.toFixed(2)}ms`);
+      console.log(`Later average: ${laterAvg.toFixed(2)}ms`);
+      console.log(`Performance degradation: ${degradationPercent.toFixed(2)}%`);
+      
+      // Performance degradation should be minimal (less than 25%)
+      expect(degradationPercent).toBeLessThan(25);
+    });
+  });
+
+  test.describe('E3.4.4: Network and API Performance', () => {
+    test('should optimize API calls for efficiency', async ({ page }) => {
+      const networkCalls = [];
+      
+      // Monitor network requests
+      page.on('request', request => {
+        if (request.url().includes('/api/') || request.url().includes('supabase') || request.url().includes('functions')) {
+          networkCalls.push({
+            url: request.url(),
+            method: request.method(),
+            timestamp: Date.now()
+          });
+        }
+      });
+      
+      page.on('response', response => {
+        if (response.url().includes('/api/') || response.url().includes('supabase') || response.url().includes('functions')) {
+          const matchingRequest = networkCalls.find(req => 
+            req.url === response.url() && 
+            Math.abs(req.timestamp - Date.now()) < 30000
+          );
+          
+          if (matchingRequest) {
+            matchingRequest.responseTime = Date.now() - matchingRequest.timestamp;
+            matchingRequest.status = response.status();
+          }
+        }
+      });
+      
+      // Send a message to trigger API calls
+      const textarea = page.locator('textarea');
+      await textarea.fill('Test message to analyze API performance');
+      
+      const sendButton = page.locator('button[type="submit"]');
+      await sendButton.click();
+      
+      await expect(page.locator('text=/test|message|analyze/i')).toBeVisible({ timeout: 15000 });
+      
+      // Wait for all network calls to complete
+      await page.waitForTimeout(5000);
+      
+      const completedCalls = networkCalls.filter(call => call.responseTime);
+      const apiResponseTimes = completedCalls.map(call => call.responseTime);
+      
+      if (apiResponseTimes.length > 0) {
+        const avgApiTime = apiResponseTimes.reduce((sum, time) => sum + time, 0) / apiResponseTimes.length;
+        const maxApiTime = Math.max(...apiResponseTimes);
+        
+        console.log(`\nAPI Performance:`);
+        console.log(`API calls made: ${networkCalls.length}`);
+        console.log(`Completed calls: ${completedCalls.length}`);
+        console.log(`Average API response time: ${avgApiTime.toFixed(2)}ms`);
+        console.log(`Max API response time: ${maxApiTime.toFixed(2)}ms`);
+        
+        // API calls should be reasonably fast
+        expect(maxApiTime).toBeLessThan(15000); // 15 seconds max for any single API call
+        expect(avgApiTime).toBeLessThan(8000);   // 8 seconds average
+      }
+    });
+
+    test('should handle API rate limits gracefully', async ({ page }) => {
+      // Test rapid API calls to check rate limiting behavior
+      const rapidRequests = 5;
+      const requestTimes = [];
+      
+      for (let i = 0; i < rapidRequests; i++) {
+        const startTime = performance.now();
+        
+        const textarea = page.locator('textarea');
+        await textarea.clear();
+        await textarea.fill(`Rapid request ${i + 1} to test rate limiting`);
+        
+        const sendButton = page.locator('button[type="submit"]');
+        await sendButton.click();
+        
+        // Don't wait for response before sending next request
+        if (i < rapidRequests - 1) {
+          await page.waitForTimeout(500); // Very short delay
+        }
+        
+        requestTimes.push(performance.now() - startTime);
+      }
+      
+      // Wait for all responses
+      await page.waitForTimeout(60000); // Give plenty of time for rate-limited requests
+      
+      console.log(`\nRate Limiting Test:`);
+      console.log(`Sent ${rapidRequests} rapid requests`);
+      requestTimes.forEach((time, index) => {
+        console.log(`Request ${index + 1}: ${time.toFixed(2)}ms to send`);
+      });
+      
+      // System should handle rapid requests without crashing
+      const messagesVisible = await page.locator('text=/rapid request/i').count();
+      console.log(`Messages that received responses: ${messagesVisible}`);
+      
+      // At least some requests should succeed
+      expect(messagesVisible).toBeGreaterThan(0);
+    });
+  });
+
+  test.describe('E3.4.5: Performance Regression Testing', () => {
+    test('should maintain baseline performance standards', async ({ page }) => {
+      // Define baseline performance standards
+      const performanceBaselines = {
+        initialPageLoad: 5000,      // 5 seconds
+        firstMessageResponse: 10000, // 10 seconds
+        subsequentResponses: 8000,   // 8 seconds
+        uiInteractionDelay: 200     // 200ms
+      };
+      
+      // Test initial page load
+      const pageLoadStart = performance.now();
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      const pageLoadTime = performance.now() - pageLoadStart;
+      
+      console.log(`\nPerformance Regression Test:`);
+      console.log(`Page load time: ${pageLoadTime.toFixed(2)}ms (baseline: ${performanceBaselines.initialPageLoad}ms)`);
+      expect(pageLoadTime).toBeLessThan(performanceBaselines.initialPageLoad);
+      
+      // Test first message response
+      const firstMessageStart = performance.now();
+      const textarea = page.locator('textarea');
+      await textarea.fill('First message performance test');
+      
+      const sendButton = page.locator('button[type="submit"]');
+      await sendButton.click();
+      
+      await expect(page.locator('text=/first|message|performance/i')).toBeVisible({ timeout: 15000 });
+      const firstMessageTime = performance.now() - firstMessageStart;
+      
+      console.log(`First message response: ${firstMessageTime.toFixed(2)}ms (baseline: ${performanceBaselines.firstMessageResponse}ms)`);
+      expect(firstMessageTime).toBeLessThan(performanceBaselines.firstMessageResponse);
+      
+      // Test subsequent response
+      const subsequentStart = performance.now();
+      await textarea.clear();
+      await textarea.fill('Subsequent message test');
+      await sendButton.click();
+      
+      await expect(page.locator('text=/subsequent|message/i')).toBeVisible({ timeout: 12000 });
+      const subsequentTime = performance.now() - subsequentStart;
+      
+      console.log(`Subsequent response: ${subsequentTime.toFixed(2)}ms (baseline: ${performanceBaselines.subsequentResponses}ms)`);
+      expect(subsequentTime).toBeLessThan(performanceBaselines.subsequentResponses);
+      
+      // Test UI interaction delay
+      const uiInteractionStart = performance.now();
+      await textarea.click();
+      await textarea.fill('UI responsiveness test');
+      const uiInteractionTime = performance.now() - uiInteractionStart;
+      
+      console.log(`UI interaction delay: ${uiInteractionTime.toFixed(2)}ms (baseline: ${performanceBaselines.uiInteractionDelay}ms)`);
+      expect(uiInteractionTime).toBeLessThan(performanceBaselines.uiInteractionDelay);
+      
+      console.log(`\nAll performance baselines met `);
+    });
+  });
+});

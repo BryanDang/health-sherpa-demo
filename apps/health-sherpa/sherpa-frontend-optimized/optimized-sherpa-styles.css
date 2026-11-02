@@ -1,0 +1,196 @@
+/* optimized-sherpa-styles.css - Size-optimized healthcare UI */
+
+/* CSS Custom Properties - Consolidated and Optimized */
+:root {
+  /* Color Palette - Reduced from 204 to 24 essential properties */
+  --primary-blue: #2563eb;
+  --primary-blue-dark: #1d4ed8;
+  --primary-blue-light: #3b82f6;
+  --accent-green: #059669;
+  --neutral-gray: #6b7280;
+  --neutral-light: #f9fafb;
+  --neutral-dark: #111827;
+  --error-red: #dc2626;
+  --warning-amber: #d97706;
+  --success-green: #16a34a;
+
+  /* Typography - Optimized scale */
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+
+  /* Spacing - Mathematical scale */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+
+  /* Animation timing - Performance optimized */
+  --duration-fast: 0.15s;
+  --duration-normal: 0.3s;
+  --duration-slow: 0.5s;
+  --easing: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* BEM Block: Sherpa App Container */
+.sherpa-app {
+  min-height: 100vh;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: var(--neutral-dark);
+  background: var(--neutral-light);
+}
+
+/* BEM Block: Logo Ring - Hardware Accelerated Animations */
+.sherpa-logo {
+  position: relative;
+  will-change: transform; /* Hardware acceleration hint */
+}
+
+.sherpa-logo__ring {
+  border-radius: 50%;
+  border: 3px solid var(--primary-blue);
+  background: transparent;
+  transform: translateZ(0); /* Force hardware acceleration */
+}
+
+.sherpa-logo__ring--analyzing {
+  animation: sherpa-pulse var(--duration-slow) var(--easing) infinite alternate;
+}
+
+.sherpa-logo__ring--complete {
+  animation: sherpa-success var(--duration-normal) var(--easing) forwards;
+}
+
+/* Optimized Keyframes - Hardware Accelerated Properties Only */
+@keyframes sherpa-pulse {
+  0% {
+    transform: translateZ(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateZ(0) scale(1.05);
+    opacity: 0.8;
+  }
+}
+
+@keyframes sherpa-success {
+  0% {
+    transform: translateZ(0) scale(1);
+    background-color: transparent;
+  }
+  100% {
+    transform: translateZ(0) scale(1.1);
+    background-color: var(--success-green);
+  }
+}
+
+/* BEM Block: Chat Interface */
+.sherpa-chat {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: var(--space-4);
+}
+
+.sherpa-chat__message {
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
+  border-radius: 0.5rem;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.sherpa-chat__message--user {
+  background: var(--primary-blue);
+  color: white;
+  margin-left: var(--space-8);
+}
+
+.sherpa-chat__message--ai {
+  background: white;
+  margin-right: var(--space-8);
+}
+
+/* BEM Block: Input Components */
+.sherpa-input {
+  width: 100%;
+  padding: var(--space-4);
+  border: 2px solid var(--neutral-gray);
+  border-radius: 0.5rem;
+  font-size: var(--font-size-base);
+  transition: border-color var(--duration-fast) var(--easing);
+}
+
+.sherpa-input:focus {
+  outline: none;
+  border-color: var(--primary-blue);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.sherpa-input--error {
+  border-color: var(--error-red);
+}
+
+/* BEM Block: Button Components */
+.sherpa-btn {
+  padding: var(--space-2) var(--space-6);
+  border: none;
+  border-radius: 0.375rem;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--easing);
+  transform: translateZ(0); /* Hardware acceleration */
+}
+
+.sherpa-btn--primary {
+  background: var(--primary-blue);
+  color: white;
+}
+
+.sherpa-btn--primary:hover {
+  background: var(--primary-blue-dark);
+  transform: translateZ(0) translateY(-1px);
+}
+
+.sherpa-btn--secondary {
+  background: transparent;
+  color: var(--primary-blue);
+  border: 1px solid var(--primary-blue);
+}
+
+/* Reduced Motion Support - Critical for Healthcare Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .sherpa-logo__ring--analyzing,
+  .sherpa-logo__ring--complete {
+    animation: none;
+  }
+
+  .sherpa-btn {
+    transition: none;
+  }
+
+  .sherpa-input {
+    transition: none;
+  }
+}
+
+/* Mobile Optimization */
+@media (max-width: 768px) {
+  .sherpa-chat {
+    padding: var(--space-2);
+  }
+
+  .sherpa-chat__message--user {
+    margin-left: var(--space-4);
+  }
+
+  .sherpa-chat__message--ai {
+    margin-right: var(--space-4);
+  }
+}

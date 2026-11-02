@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="healthcare">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Sherpa AI - Healthcare Assistant">
+
+  <!-- Optimized CSS (single file, minified in production) -->
+  <link rel="stylesheet" href="optimized-sherpa-styles.css">
+
+  <!-- Preload critical resources -->
+  <link rel="preload" href="sherpa-app-optimized.js" as="script">
+
+  <title>Sherpa AI - Your Healthcare Assistant</title>
+</head>
+
+<body>
+  <main class="sherpa-app" role="main">
+    <!-- Header with optimized logo animation -->
+    <header class="sherpa-app__header">
+      <div class="sherpa-logo">
+        <div class="sherpa-logo__ring" id="sherpa-logo-ring"></div>
+      </div>
+      <h1 class="sherpa-app__title">Sherpa AI Healthcare Assistant</h1>
+    </header>
+
+    <!-- Progress indicator -->
+    <div class="sherpa-progress-container">
+      <div class="sherpa-progress" id="sherpa-progress"></div>
+    </div>
+
+    <!-- Chat interface -->
+    <section class="sherpa-chat" id="sherpa-chat-container">
+      <div class="sherpa-chat__message sherpa-chat__message--ai">
+        <p>Hello! I'm your healthcare assistant. What's been on your mind about your health lately?</p>
+      </div>
+    </section>
+
+    <!-- Input area -->
+    <section class="sherpa-input-area">
+      <div class="sherpa-input-group">
+        <textarea 
+          id="sherpa-chat-input"
+          class="sherpa-input"
+          placeholder="Share what's on your mind..."
+          rows="3"
+          aria-label="Health concern input"></textarea>
+
+        <button 
+          id="sherpa-submit-btn"
+          class="sherpa-btn sherpa-btn--primary"
+          type="button"
+          aria-label="Submit your message">
+          Send Message
+        </button>
+      </div>
+
+      <!-- Error display -->
+      <div id="error-submit" class="sherpa-error" style="display: none;" role="alert"></div>
+    </section>
+
+    <!-- Privacy notice (HIPAA compliance) -->
+    <footer class="sherpa-privacy-notice">
+      <p>Your information is encrypted and de-identified for privacy protection.</p>
+    </footer>
+  </main>
+
+  <!-- Optimized JavaScript modules -->
+  <script type="module" src="sherpa-app-optimized.js"></script>
+
+  <!-- Service worker for offline capability (optional) -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .catch(err => console.log('Service worker registration failed:', err));
+    }
+  </script>
+</body>
+</html>

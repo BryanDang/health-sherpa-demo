@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Sherpa AI - Your trusted healthcare assistant for personalized health assessments">
+    <title>Sherpa AI - Healthcare Assistant</title>
+    <!-- Link to the CSS file -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="sherpa-app" id="sherpa-app">
+        <!-- Header Section -->
+        <header class="sherpa-header">
+            <div class="container">
+                <div class="sherpa-header__content">
+                    <div class="sherpa-logo">
+                        <div class="sherpa-logo__ring" id="sherpa-logo-ring" aria-hidden="true"></div>
+                        <h1 class="sherpa-logo__text">Sherpa AI</h1>
+                    </div>
+                    <p class="sherpa-header__subtitle">Your trusted healthcare companion</p>
+                </div>
+            </div>
+        </header>
+
+        <!-- Progress Bar -->
+        <div class="sherpa-progress-container" role="progressbar" aria-label="Assessment Progress">
+            <div class="sherpa-progress__bar">
+                <div class="sherpa-progress__fill" id="progress-fill"></div>
+            </div>
+            <span class="sherpa-progress__text" id="progress-text">Step 0 of 5</span>
+        </div>
+
+        <!-- Main Content -->
+        <main class="sherpa-main">
+            <div class="container">
+                <!-- Welcome Screen -->
+                <section class="sherpa-screen sherpa-screen--active" id="welcome-screen">
+                    <div class="sherpa-welcome">
+                        <h2 class="sherpa-welcome__title">Welcome to Your Health Journey</h2>
+                        <p class="sherpa-welcome__description">
+                            I'm here to help you understand your health better. We'll start with a few questions 
+                            to create a personalized health assessment just for you.
+                        </p>
+                        
+                        <!-- Privacy Features -->
+                        <div class="sherpa-privacy">
+                            <h3 class="sherpa-privacy__title">Your Privacy is Our Priority</h3>
+                            <ul class="sherpa-privacy__list" role="list">
+                                <li class="sherpa-privacy__item">
+                                    <span class="sherpa-privacy__icon" aria-hidden="true"></span>
+                                    256-bit AES encryption for all data
+                                </li>
+                                <li class="sherpa-privacy__item">
+                                    <span class="sherpa-privacy__icon" aria-hidden="true"></span>
+                                    HIPAA-compliant data handling
+                                </li>
+                                <li class="sherpa-privacy__item">
+                                    <span class="sherpa-privacy__icon" aria-hidden="true"></span>
+                                    De-identification of personal information
+                                </li>
+                                <li class="sherpa-privacy__item">
+                                    <span class="sherpa-privacy__icon" aria-hidden="true"></span>
+                                    Secure transmission protocols
+                                </li>
+                                <li class="sherpa-privacy__item">
+                                    <span class="sherpa-privacy__icon" aria-hidden="true"></span>
+                                    User-controlled data retention
+                                </li>
+                            </ul>
+                        </div>
+
+                        <button class="btn btn--primary btn--lg" id="start-assessment">
+                            Begin Health Assessment
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Question Screens -->
+                <section class="sherpa-screen" id="question-screen">
+                    <div class="sherpa-question-container">
+                        <div class="sherpa-question" id="current-question">
+                            <!-- Question content will be dynamically inserted -->
+                        </div>
+                        
+                        <div class="sherpa-question__actions">
+                            <button class="btn btn--outline" id="prev-question" disabled>
+                                Previous
+                            </button>
+                            <button class="btn btn--primary" id="next-question" disabled>
+                                Next Question
+                            </button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Processing Screen -->
+                <section class="sherpa-screen" id="processing-screen">
+                    <div class="sherpa-processing">
+                        <div class="sherpa-processing__animation">
+                            <div class="sherpa-processing__ring" id="processing-ring"></div>
+                        </div>
+                        <h2 class="sherpa-processing__title">Analyzing Your Health Profile</h2>
+                        <p class="sherpa-processing__description" id="processing-text">
+                            Encrypting your data securely...
+                        </p>
+                        <div class="sherpa-processing__steps">
+                            <div class="sherpa-processing__step sherpa-processing__step--active" id="step-encrypt">
+                                <span class="sherpa-processing__step-icon"></span>
+                                Encrypting data
+                            </div>
+                            <div class="sherpa-processing__step" id="step-analyze">
+                                <span class="sherpa-processing__step-icon"></span>
+                                Analyzing responses
+                            </div>
+                            <div class="sherpa-processing__step" id="step-generate">
+                                <span class="sherpa-processing__step-icon"></span>
+                                Generating insights
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Completion Screen -->
+                <section class="sherpa-screen" id="completion-screen">
+                    <div class="sherpa-completion">
+                        <div class="sherpa-completion__success">
+                            <div class="sherpa-completion__icon"></div>
+                            <h2 class="sherpa-completion__title">Assessment Complete!</h2>
+                        </div>
+                        
+                        <div class="sherpa-completion__content">
+                            <p class="sherpa-completion__message">
+                                Thank you for sharing your health information with us. Your responses have been 
+                                securely processed and your personalized health insights are ready.
+                            </p>
+                            
+                            <div class="sherpa-completion__next-steps">
+                                <h3>Your Next Steps:</h3>
+                                <ul class="sherpa-completion__steps-list">
+                                    <li>Review your personalized health recommendations</li>
+                                    <li>Connect with healthcare providers in your area</li>
+                                    <li>Set up health monitoring and reminders</li>
+                                    <li>Access educational resources tailored to your needs</li>
+                                </ul>
+                            </div>
+                            
+                            <div class="sherpa-completion__actions">
+                                <button class="btn btn--primary btn--lg" id="view-results">
+                                    View My Health Insights
+                                </button>
+                                <button class="btn btn--outline" id="restart-assessment">
+                                    Start New Assessment
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <!-- Error Display -->
+        <div class="sherpa-error" id="error-display" role="alert" aria-live="polite" style="display: none;">
+            <div class="sherpa-error__content">
+                <span class="sherpa-error__icon"></span>
+                <span class="sherpa-error__message" id="error-message"></span>
+                <button class="sherpa-error__close" id="error-close" aria-label="Close error message">×</button>
+            </div>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div class="sherpa-loading" id="loading-indicator" aria-hidden="true" style="display: none;">
+            <div class="sherpa-loading__spinner"></div>
+        </div>
+    </div>
+
+    <!-- Analytics and Performance Monitoring -->
+    <script>
+        // Core Web Vitals and Performance Monitoring
+        window.sherpaAnalytics = {
+            vitals: {},
+            events: []
+        };
+    </script>
+    
+    <!-- Link to the JavaScript file -->
+    <script src="app.js"></script>
+</body>
+</html>

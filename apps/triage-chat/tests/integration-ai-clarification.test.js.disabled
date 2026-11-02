@@ -1,0 +1,400 @@
+/**
+ * Integration Tests: AI Clarification Logic
+ * 
+ * Tests the full integration of AI-powered medical definition evaluation
+ * with clarification question generation and progressive information gathering
+ */
+
+const BASE_URL = process.env.SUPABASE_FUNCTIONS_URL;
+const API_KEY = `Bearer ${process.env.SUPABASE_ANON_KEY}`;
+
+class AIClarificationTestSuite {
+  constructor() {
+    this.results = [];
+    this.totalTests = 0;
+    this.passedTests = 0;
+  }
+
+  async runTest(name, testFn) {
+    this.totalTests++;
+    console.log(`\nTesting: ${name}`);
+    
+    try {
+      await testFn();
+      this.passedTests++;
+      console.log(`PASS: ${name}`);
+      this.results.push({ name, status: 'PASS', error: null });
+    } catch (error) {
+      console.log(`FAIL: ${name} - ${error.message}`);
+      this.results.push({ name, status: 'FAIL', error: error.message });
+    }
+  }
+
+  async callTriageEnhanced(message, history = []) {
+    const response = await fetch(`${BASE_URL}/triage-enhanced`, {
+      method: 'POST',
+      headers: {
+        'Authorization': API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message,
+        conversationHistory: history
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`API call failed: ${response.status} ${response.statusText}`);
+    }
+
+    return await response.json();
+  }
+
+  assert(condition, message) {
+    if (!condition) {
+      throw new Error(message);
+    }
+  }
+
+  printSummary() {
+    console.log('\n' + '='.repeat(70));
+    console.log(`AI CLARIFICATION INTEGRATION TEST SUMMARY`);
+    console.log(`Total Tests: ${this.totalTests}`);
+    console.log(`Passed: ${this.passedTests}`);
+    console.log(`Failed: ${this.totalTests - this.passedTests}`);
+    console.log(`Success Rate: ${((this.passedTests / this.totalTests) * 100).toFixed(1)}%`);
+    
+    if (this.passedTests === this.totalTests) {
+      console.log('ALL AI CLARIFICATION INTEGRATION TESTS PASSED!');
+    } else {
+      console.log('\nFailed Tests:');
+      this.results.filter(r => r.status === 'FAIL').forEach(r => {
+        console.log(`  - ${r.name}: ${r.error}`);
+      });
+    }
+    console.log('='.repeat(70));
+  }
+}
+
+async function runAIClarificationTests() {
+  const suite = new AIClarificationTestSuite();
+
+  // ========================================
+  // PROGRESSIVE CLARIFICATION WORKFLOW TESTS
+  // ========================================
+
+  // Test 1: Vague → Specific Emergency Progression
+  await suite.runTest('Progressive Clarification: Vague to Emergency', async () => {
+    // Step 1: Vague initial complaint
+    const step1 = await suite.callTriageEnhanced('I feel really bad and there\'s blood');
+    
+    suite.assert(step1.needsMoreInfo === true, 
+      'Vague emergency symptoms should trigger clarification');
+    
+    suite.assert(step1.clarificationQuestions && step1.clarificationQuestions.length > 0, 
+      'Should provide specific clarifying questions');
+    
+    // Step 2: User provides emergency details
+    const history1 = [
+      { role: 'user', content: 'I feel really bad and there\'s blood' },
+      { role: 'assistant', content: step1.response }
+    ];
+    
+    const step2 = await suite.callTriageEnhanced(
+      'The bleeding won\'t stop after 30 minutes of pressure and I\'m getting dizzy',
+      history1
+    );
+    
+    suite.assert(step2.careLevel === 'emergency', 
+      `Progressive clarification should identify emergency, got ${step2.careLevel}`);
+    
+    console.log(`    Step 1: ${step1.careLevel} (needs clarification)`);
+    console.log(`    Step 2: ${step2.careLevel} (emergency identified)`);
+    console.log(`    Questions asked: ${step1.clarificationQuestions?.length || 0}`);
+  });
+
+  // Test 2: Vague → Non-Emergency Progression
+  await suite.runTest('Progressive Clarification: Vague to Self-Care', async () => {
+    // Step 1: Vague complaint
+    const step1 = await suite.callTriageEnhanced('I don\'t feel well');
+    
+    suite.assert(step1.needsMoreInfo === true || 
+                (step1.clarificationQuestions && step1.clarificationQuestions.length > 0), 
+      'Vague symptoms should trigger clarification');
+    
+    // Step 2: User clarifies with minor symptoms
+    const history1 = [
+      { role: 'user', content: 'I don\'t feel well' },
+      { role: 'assistant', content: step1.response }
+    ];
+    
+    const step2 = await suite.callTriageEnhanced(
+      'I have a mild headache and feel a bit tired, started this morning',
+      history1
+    );
+    
+    suite.assert(['self_care', 'primary'].includes(step2.careLevel), 
+      `Minor symptoms should be self-care/primary, got ${step2.careLevel}`);
+    
+    console.log(`    Step 1: ${step1.careLevel} (needs clarification)`);
+    console.log(`    Step 2: ${step2.careLevel} (minor symptoms identified)`);
+  });
+
+  // ========================================
+  // AI QUESTION QUALITY TESTS  
+  // ========================================
+
+  // Test 3: Emergency-Specific Questions for Bleeding
+  await suite.runTest('AI Question Quality: Bleeding Emergency Questions', async () => {
+    const data = await suite.callTriageEnhanced('I\'m bleeding from my arm');
+    
+    if (data.needsMoreInfo && data.clarificationQuestions) {
+      const questions = data.clarificationQuestions.join(' ').toLowerCase();
+      
+      // Should ask about duration, pressure application, severity
+      const hasDurationQuestion = /how long|duration|when.*start/.test(questions);
+      const hasPressureQuestion = /pressure|direct pressure|tried.*pressure/.test(questions);
+      const hasSeverityQuestion = /severe|amount|how much|dizzy|weak/.test(questions);
+      
+      suite.assert(hasDurationQuestion, 
+        'Should ask about bleeding duration');
+      suite.assert(hasPressureQuestion, 
+        'Should ask about pressure application');
+      suite.assert(hasSeverityQuestion, 
+        'Should ask about severity indicators');
+      
+      console.log(`    Duration question: ${hasDurationQuestion}`);
+      console.log(`    Pressure question: ${hasPressureQuestion}`);
+      console.log(`    Severity question: ${hasSeverityQuestion}`);
+    } else {
+      console.log(`    No clarification needed (classification: ${data.careLevel})`);
+    }
+  });
+
+  // Test 4: Emergency-Specific Questions for Chest Pain
+  await suite.runTest('AI Question Quality: Chest Pain Emergency Questions', async () => {
+    const data = await suite.callTriageEnhanced('I have chest discomfort');
+    
+    if (data.needsMoreInfo && data.clarificationQuestions) {
+      const questions = data.clarificationQuestions.join(' ').toLowerCase();
+      
+      // Should ask about pain character, radiation, associated symptoms
+      const hasCharacterQuestion = /describe.*pain|crushing|pressure|stabbing/.test(questions);
+      const hasRadiationQuestion = /radiat|arm|jaw|neck|back/.test(questions);
+      const hasAssociatedQuestion = /breath|nausea|sweat|dizzy/.test(questions);
+      
+      suite.assert(hasCharacterQuestion || hasRadiationQuestion || hasAssociatedQuestion, 
+        'Should ask cardiac-specific emergency questions');
+      
+      console.log(`    Character question: ${hasCharacterQuestion}`);
+      console.log(`    Radiation question: ${hasRadiationQuestion}`);
+      console.log(`    Associated symptoms: ${hasAssociatedQuestion}`);
+    } else {
+      console.log(`    No clarification needed (classification: ${data.careLevel})`);
+    }
+  });
+
+  // ========================================
+  // CONTEXT PRESERVATION TESTS
+  // ========================================
+
+  // Test 5: Multi-Turn Context Preservation
+  await suite.runTest('Context Preservation: Multi-Turn Conversation', async () => {
+    // Turn 1: Initial complaint
+    const turn1 = await suite.callTriageEnhanced('My chest hurts');
+    
+    // Turn 2: Add detail
+    const history1 = [
+      { role: 'user', content: 'My chest hurts' },
+      { role: 'assistant', content: turn1.response }
+    ];
+    
+    const turn2 = await suite.callTriageEnhanced('It\'s been going on for an hour', history1);
+    
+    // Turn 3: Add severity
+    const history2 = [
+      ...history1,
+      { role: 'user', content: 'It\'s been going on for an hour' },
+      { role: 'assistant', content: turn2.response }
+    ];
+    
+    const turn3 = await suite.callTriageEnhanced('It\'s really severe, like 9 out of 10', history2);
+    
+    // Final assessment should consider all context: chest pain + duration + severity
+    suite.assert(['emergency', 'urgent'].includes(turn3.careLevel), 
+      `Severe chest pain should escalate with context, got ${turn3.careLevel}`);
+    
+    // Should reference all symptoms from conversation
+    const reasoning = turn3.reasoning?.careLevelJustification || '';
+    const hasChestReference = reasoning.toLowerCase().includes('chest');
+    
+    console.log(`    Turn 1: ${turn1.careLevel}`);
+    console.log(`    Turn 2: ${turn2.careLevel}`);
+    console.log(`    Turn 3: ${turn3.careLevel}`);
+    console.log(`    Context preserved: ${hasChestReference}`);
+  });
+
+  // ========================================
+  // AI MODEL INTEGRATION TESTS
+  // ========================================
+
+  // Test 6: Model Selection Integration
+  await suite.runTest('Model Integration: Different Models for Different Tasks', async () => {
+    const data = await suite.callTriageEnhanced(
+      'I have crushing chest pain radiating to my left arm with shortness of breath'
+    );
+    
+    // Should use complex analysis model for emergency evaluation
+    suite.assert(data.reasoning?.modelsUsed?.extraction && data.reasoning?.modelsUsed?.response, 
+      'Should report which models were used');
+    
+    console.log(`    Extraction model: ${data.reasoning?.modelsUsed?.extraction || 'not reported'}`);
+    console.log(`    Response model: ${data.reasoning?.modelsUsed?.response || 'not reported'}`);
+    console.log(`    Classification: ${data.careLevel}`);
+  });
+
+  // Test 7: AI Fallback Handling
+  await suite.runTest('AI Fallback: Conservative Safety When AI Fails', async () => {
+    // Test with input that might cause AI parsing issues
+    const data = await suite.callTriageEnhanced(
+      'bleeding bleeding bleeding severe pain emergency help !!!!!!'
+    );
+    
+    // Even if AI has trouble parsing, should err on side of safety
+    suite.assert(!['self_care'].includes(data.careLevel), 
+      'Should use conservative fallback for ambiguous emergency terms');
+    
+    suite.assert(data.response && data.response.length > 0, 
+      'Should still provide meaningful response even with parsing issues');
+    
+    console.log(`    Classification: ${data.careLevel} (conservative fallback)`);
+    console.log(`    Response provided: ${data.response ? 'Yes' : 'No'}`);
+  });
+
+  // ========================================
+  // REAL-WORLD SCENARIO TESTS
+  // ========================================
+
+  // Test 8: Mixed Emergency and Non-Emergency Symptoms
+  await suite.runTest('Real-World: Mixed Emergency/Non-Emergency Symptoms', async () => {
+    const data = await suite.callTriageEnhanced(
+      'I have a runny nose, feel tired, and my chest feels tight when I breathe'
+    );
+    
+    // Should prioritize chest/breathing symptoms over cold symptoms
+    suite.assert(['emergency', 'urgent'].includes(data.careLevel), 
+      `Should prioritize breathing difficulty over cold symptoms, got ${data.careLevel}`);
+    
+    console.log(`    Classification: ${data.careLevel} (breathing prioritized)`);
+  });
+
+  // Test 9: Time-Critical Progression
+  await suite.runTest('Real-World: Time-Critical Symptom Progression', async () => {
+    // Symptoms getting worse over time
+    const data = await suite.callTriageEnhanced(
+      'I had mild chest discomfort an hour ago, now it\'s severe and I can\'t catch my breath'
+    );
+    
+    // Should recognize progression pattern
+    suite.assert(data.careLevel === 'emergency', 
+      `Rapidly worsening cardiac symptoms should be emergency, got ${data.careLevel}`);
+    
+    console.log(`    Classification: ${data.careLevel}`);
+    console.log(`    Progression recognized: ${data.careLevel === 'emergency'}`);
+  });
+
+  // Test 10: Medical Terminology vs Lay Language
+  await suite.runTest('Real-World: Medical vs Lay Language Understanding', async () => {
+    // Test 1: Medical terminology
+    const medical = await suite.callTriageEnhanced(
+      'I\'m experiencing substernal chest pressure with diaphoresis'
+    );
+    
+    // Test 2: Lay language for same symptoms
+    const lay = await suite.callTriageEnhanced(
+      'I have pressure under my breastbone and I\'m sweating a lot'
+    );
+    
+    // Both should be classified similarly (emergency)
+    suite.assert(medical.careLevel === lay.careLevel, 
+      `Medical and lay language should yield similar classifications: ${medical.careLevel} vs ${lay.careLevel}`);
+    
+    suite.assert(medical.careLevel === 'emergency', 
+      'Heart attack symptoms should be emergency regardless of terminology');
+    
+    console.log(`    Medical terminology: ${medical.careLevel}`);
+    console.log(`    Lay language: ${lay.careLevel}`);
+    console.log(`    Consistent classification: ${medical.careLevel === lay.careLevel}`);
+  });
+
+  // ========================================
+  // PERFORMANCE AND RELIABILITY TESTS
+  // ========================================
+
+  // Test 11: Response Time for Complex Cases
+  await suite.runTest('Performance: Complex Case Response Time', async () => {
+    const startTime = Date.now();
+    
+    const data = await suite.callTriageEnhanced(
+      'I fell off my bike, hit my head, now I have a severe headache, feel confused, keep vomiting, and there\'s blood coming from my ear'
+    );
+    
+    const responseTime = Date.now() - startTime;
+    
+    // Should respond within reasonable time even for complex multi-system cases
+    suite.assert(responseTime < 20000, 
+      `Complex case should respond <20s, took ${responseTime}ms`);
+    
+    // Should still classify correctly
+    suite.assert(data.careLevel === 'emergency', 
+      'Complex head injury should be emergency');
+    
+    console.log(`    Response time: ${responseTime}ms`);
+    console.log(`    Classification: ${data.careLevel}`);
+  });
+
+  // Test 12: Consistency Across Multiple Calls
+  await suite.runTest('Reliability: Classification Consistency', async () => {
+    const testCase = 'I have severe crushing chest pain radiating to my left arm';
+    
+    // Run same case multiple times
+    const results = [];
+    for (let i = 0; i < 3; i++) {
+      const data = await suite.callTriageEnhanced(testCase);
+      results.push(data.careLevel);
+    }
+    
+    // Should be consistent
+    const allSame = results.every(level => level === results[0]);
+    suite.assert(allSame, 
+      `Classification should be consistent: ${results.join(', ')}`);
+    
+    suite.assert(results[0] === 'emergency', 
+      'Heart attack symptoms should consistently be emergency');
+    
+    console.log(`    Results: ${results.join(', ')}`);
+    console.log(`    Consistent: ${allSame}`);
+  });
+
+  suite.printSummary();
+  return suite.passedTests === suite.totalTests;
+}
+
+// Run the comprehensive AI clarification integration tests
+console.log('Starting AI Clarification Integration Tests...');
+console.log('Testing full AI-powered medical definition evaluation with clarification logic...\n');
+
+runAIClarificationTests().then(success => {
+  if (success) {
+    console.log('\nALL AI CLARIFICATION INTEGRATION TESTS PASSED!');
+    console.log('AI clarification logic works correctly with medical definitions');
+    console.log('Ready for failure mode and E2E testing');
+  } else {
+    console.log('\nAI CLARIFICATION INTEGRATION TESTS FAILED');
+    console.log('Fix AI clarification logic before proceeding to failure mode tests');
+  }
+  process.exit(success ? 0 : 1);
+}).catch(error => {
+  console.error('AI clarification test suite crashed:', error);
+  process.exit(1);
+});

@@ -1,0 +1,251 @@
+/**
+ * Integration Tests for Enhanced Triage API
+ * Tests feature interactions and data flow
+ */
+
+const BASE_URL = process.env.SUPABASE_FUNCTIONS_URL;
+const API_KEY = `Bearer ${process.env.SUPABASE_ANON_KEY}`;
+
+class IntegrationTestSuite {
+  constructor() {
+    this.results = [];
+    this.totalTests = 0;
+    this.passedTests = 0;
+  }
+
+  async runTest(name, testFn) {
+    this.totalTests++;
+    console.log(`\nRunning: ${name}`);
+    
+    try {
+      await testFn();
+      this.passedTests++;
+      console.log(`PASS: ${name}`);
+      this.results.push({ name, status: 'PASS', error: null });
+    } catch (error) {
+      console.log(`FAIL: ${name} - ${error.message}`);
+      this.results.push({ name, status: 'FAIL', error: error.message });
+    }
+  }
+
+  async apiCall(endpoint, body, options = {}) {
+    const response = await fetch(`${BASE_URL}/${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': API_KEY,
+        'Content-Type': 'application/json',
+        ...options.headers
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok && !options.expectError) {
+      throw new Error(`API call failed: ${response.status} ${response.statusText}`);
+    }
+
+    return response;
+  }
+
+  assert(condition, message) {
+    if (!condition) {
+      throw new Error(message);
+    }
+  }
+
+  assertExists(value, fieldName) {
+    if (value === undefined || value === null) {
+      throw new Error(`Expected ${fieldName} to exist`);
+    }
+  }
+
+  assertType(value, expectedType, fieldName) {
+    if (typeof value !== expectedType) {
+      throw new Error(`Expected ${fieldName} to be ${expectedType}, got ${typeof value}`);
+    }
+  }
+
+  assertArrayContains(array, item, message) {
+    if (!Array.isArray(array) || !array.includes(item)) {
+      throw new Error(message || `Expected array to contain ${item}`);
+    }
+  }
+
+  printSummary() {
+    console.log('\n' + '='.repeat(50));
+    console.log(`INTEGRATION TEST SUMMARY`);
+    console.log(`Total Tests: ${this.totalTests}`);
+    console.log(`Passed: ${this.passedTests}`);
+    console.log(`Failed: ${this.totalTests - this.passedTests}`);
+    console.log(`Success Rate: ${((this.passedTests / this.totalTests) * 100).toFixed(1)}%`);
+    
+    if (this.passedTests === this.totalTests) {
+      console.log('ALL INTEGRATION TESTS PASSED!');
+    } else {
+      console.log('\nFailed Tests:');
+      this.results.filter(r => r.status === 'FAIL').forEach(r => {
+        console.log(`  - ${r.name}: ${r.error}`);
+      });
+    }
+    console.log('='.repeat(50));
+  }
+}
+
+// Test Suite Execution
+async function runIntegrationTests() {
+  const suite = new IntegrationTestSuite();
+
+  // Test 1: Basic Enhanced Function Availability
+  await suite.runTest('Enhanced Function Responds', async () => {
+    const response = await suite.apiCall('triage-enhanced', {
+      message: 'test connectivity',
+      conversationHistory: []
+    });
+    
+    suite.assert(response.status === 200, 'Should return 200 status');
+  });
+
+  // Test 2: Structured Response Format
+  await suite.runTest('Structured Response Format', async () => {
+    const response = await suite.apiCall('triage-enhanced', {
+      message: 'I have a headache',
+      conversationHistory: []
+    });
+    
+    const data = await response.json();
+    
+    suite.assertExists(data.response, 'response field');
+    suite.assertExists(data.careLevel, 'careLevel field');
+    suite.assertExists(data.reasoning, 'reasoning field');
+    suite.assertExists(data.structured, 'structured field');
+    suite.assert(data.structured === true, 'structured should be true');
+  });
+
+  // Test 3: Model Selection Working
+  await suite.runTest('Dynamic Model Selection', async () => {
+    const response = await suite.apiCall('triage-enhanced', {
+      message: 'My knee hurts, pain level 8',
+      conversationHistory: []
+    });
+    
+    const data = await response.json();
+    
+    suite.assertExists(data.reasoning.modelsUsed, 'modelsUsed field');
+    suite.assertExists(data.reasoning.modelsUsed.extraction, 'extraction model');
+    suite.assertExists(data.reasoning.modelsUsed.response, 'response model');
+    suite.assertType(data.reasoning.modelsUsed.extraction, 'string', 'extraction model');
+    suite.assertType(data.reasoning.modelsUsed.response, 'string', 'response model');
+  });
+
+  // Test 4: Conversation Context Preservation
+  await suite.runTest('Conversation Context Preserved', async () => {
+    const firstResponse = await suite.apiCall('triage-enhanced', {
+      message: 'My knee hurts',
+      conversationHistory: []
+    });
+    
+    const firstData = await firstResponse.json();
+    
+    const secondResponse = await suite.apiCall('triage-enhanced', {
+      message: 'The pain is at a 6',
+      conversationHistory: [
+        { role: 'user', content: 'My knee hurts' },
+        { role: 'assistant', content: firstData.response }
+      ]
+    });
+    
+    const secondData = await secondResponse.json();
+    suite.assertArrayContains(secondData.reasoning.symptomsAnalyzed, 'knee hurts', 'Should remember knee pain from context');
+  });
+
+  // Test 5: Streaming Response Initiation
+  await suite.runTest('Streaming Response Available', async () => {
+    const response = await suite.apiCall('triage-enhanced', {
+      message: 'I have chest pain',
+      conversationHistory: [],
+      useStreaming: true
+    });
+    
+    const contentType = response.headers.get('content-type');
+    suite.assert(contentType?.includes('text/event-stream'), 'Should return event stream content type');
+  });
+
+  // Test 6: Input Validation
+  await suite.runTest('Input Validation - Missing Message', async () => {
+    const response = await suite.apiCall('triage-enhanced', {
+      conversationHistory: []
+      // missing message field
+    }, { expectError: true });
+    
+    suite.assert(response.status === 400, 'Should return 400 for missing message');
+  });
+
+  // Test 7: Care Level Classification
+  await suite.runTest('Care Level Classification', async () => {
+    const response = await suite.apiCall('triage-enhanced', {
+      message: 'I have mild back pain for 2 days',
+      conversationHistory: []
+    });
+    
+    const data = await response.json();
+    const validCareLevels = ['emergency', 'urgent', 'primary', 'self-care'];
+    
+    suite.assertArrayContains(validCareLevels, data.careLevel, 'Should return valid care level');
+  });
+
+  // Test 8: Reasoning Structure
+  await suite.runTest('Reasoning Structure Complete', async () => {
+    const response = await suite.apiCall('triage-enhanced', {
+      message: 'Severe headache with fever 102F',
+      conversationHistory: []
+    });
+    
+    const data = await response.json();
+    
+    suite.assertExists(data.reasoning.symptomsAnalyzed, 'symptomsAnalyzed');
+    suite.assertExists(data.reasoning.redFlags, 'redFlags');
+    suite.assertExists(data.reasoning.careLevelJustification, 'careLevelJustification');
+    suite.assert(Array.isArray(data.reasoning.symptomsAnalyzed), 'symptomsAnalyzed should be array');
+    suite.assert(Array.isArray(data.reasoning.redFlags), 'redFlags should be array');
+  });
+
+  // Test 9: Response Time Performance
+  await suite.runTest('Response Time Acceptable', async () => {
+    const startTime = Date.now();
+    
+    const response = await suite.apiCall('triage-enhanced', {
+      message: 'Quick response test',
+      conversationHistory: []
+    });
+    
+    const endTime = Date.now();
+    const responseTime = endTime - startTime;
+    
+    suite.assert(response.status === 200, 'Should respond successfully');
+    suite.assert(responseTime < 30000, `Response time should be under 30 seconds, got ${responseTime}ms`);
+  });
+
+  // Test 10: Error Handling
+  await suite.runTest('Error Handling Graceful', async () => {
+    const response = await suite.apiCall('triage-enhanced', {
+      message: null, // Invalid message
+      conversationHistory: []
+    }, { expectError: true });
+    
+    suite.assert(response.status >= 400, 'Should return error status for invalid input');
+    
+    const data = await response.json();
+    suite.assertExists(data.error, 'Should include error message');
+  });
+
+  suite.printSummary();
+  return suite.passedTests === suite.totalTests;
+}
+
+// Run the tests
+console.log('Starting Enhanced Triage Integration Tests...');
+runIntegrationTests().then(success => {
+  process.exit(success ? 0 : 1);
+}).catch(error => {
+  console.error('Test suite crashed:', error);
+  process.exit(1);
+});

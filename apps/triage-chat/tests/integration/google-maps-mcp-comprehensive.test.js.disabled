@@ -1,0 +1,464 @@
+/**
+ * Comprehensive Test Suite: Google Maps MCP Integration
+ * 
+ * Tests healthcare provider search with multi-model rate limiting
+ * Validates integration with Turquoise Health pricing data
+ */
+
+import { describe, test, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { GoogleMapsHealthcareClient } from '../../src/mcp/google-maps/google-maps-mcp-server';
+import { testRateLimiter, rateLimitedApiCall, executeParallelTests } from '../utils/multi-model-rate-limiter';
+
+// Test configuration
+const TEST_CONFIG = {
+  // Test locations for healthcare provider search
+  testLocations: [
+    { 
+      name: 'Orlando, FL',
+      coordinates: { latitude: 28.5383, longitude: -81.3792 },
+      zipCode: '32801',
+      expectedProviders: 5
+    },
+    {
+      name: 'Austin, TX', 
+      coordinates: { latitude: 30.2672, longitude: -97.7431 },
+      zipCode: '78701',
+      expectedProviders: 8
+    },
+    {
+      name: 'Denver, CO',
+      coordinates: { latitude: 39.7392, longitude: -104.9903 },
+      zipCode: '80202',
+      expectedProviders: 6
+    }
+  ],
+  
+  // Healthcare facility types to test
+  facilityTypes: [
+    'hospital',
+    'urgent_care', 
+    'primary_care',
+    'pharmacy',
+    'dentist'
+  ],
+  
+  // Affordability filters to test
+  affordabilityFilters: [
+    'free',
+    'low_cost',
+    'moderate',
+    'any'
+  ],
+  
+  // Emergency levels
+  emergencyLevels: [
+    'emergency',
+    'urgent',
+    'routine'
+  ]
+};
+
+// Mock API responses for testing
+const MOCK_GOOGLE_PLACES_RESPONSE = {
+  status: 'OK',
+  results: [
+    {
+      place_id: 'ChIJ_test_hospital_1',
+      name: 'Orlando Regional Medical Center',
+      vicinity: '52 W Underwood St, Orlando',
+      geometry: {
+        location: { lat: 28.5421, lng: -81.3790 }
+      },
+      rating: 4.2,
+      user_ratings_total: 1250,
+      price_level: 2,
+      business_status: 'OPERATIONAL',
+      opening_hours: { open_now: true },
+      types: ['hospital', 'health']
+    },
+    {
+      place_id: 'ChIJ_test_urgent_care_1',
+      name: 'AdventHealth Centra Care',
+      vicinity: '12500 S Orange Blossom Trl, Orlando',
+      geometry: {
+        location: { lat: 28.4158, lng: -81.3947 }
+      },
+      rating: 3.8,
+      user_ratings_total: 890,
+      price_level: 1,
+      business_status: 'OPERATIONAL', 
+      opening_hours: { open_now: false },
+      types: ['hospital', 'doctor']
+    }
+  ]
+};
+
+describe('Google Maps MCP Healthcare Search - Comprehensive Tests', () => {
+  let mapsClient;
+  
+  beforeAll(async () => {
+    // Initialize with test API key (mock for testing)
+    process.env.GOOGLE_MAPS_API_KEY = 'test-api-key';
+    mapsClient = new GoogleMapsHealthcareClient();
+    
+    console.log('Starting comprehensive Google Maps MCP tests');
+    console.log(`Test rate limiter status:`, testRateLimiter.getStatus());
+  });
+
+  afterAll(async () => {
+    // Final rate limiter statistics
+    const finalStats = testRateLimiter.getStatus();
+    console.log('Final test execution stats:', finalStats);
+  });
+
+  describe('Healthcare Provider Search Functionality', () => {
+    
+    test('searches providers across multiple locations with rate limiting', async () => {
+      const searchPromises = TEST_CONFIG.testLocations.map(location => async (model) => {
+        console.log(`Searching providers in ${location.name} using ${model}`);
+        
+        // Mock the search call for testing
+        const mockSearchResult = await mockHealthcareProviderSearch({
+          location: location.coordinates,
+          facilityTypes: ['hospital', 'urgent_care'],
+          radius: 5000,
+          maxResults: 10
+        });
+        
+        return {
+          location: location.name,
+          providerCount: mockSearchResult.length,
+          averageRating: mockSearchResult.reduce((sum, p) => sum + (p.rating || 0), 0) / mockSearchResult.length,
+          model
+        };
+      });
+
+      const results = await executeParallelTests(searchPromises, 2);
+      
+      // Validate results
+      expect(results).toHaveLength(TEST_CONFIG.testLocations.length);
+      results.forEach((result, index) => {
+        expect(result.providerCount).toBeGreaterThanOrEqual(TEST_CONFIG.testLocations[index].expectedProviders);
+        expect(result.averageRating).toBeGreaterThan(3.0);
+        expect(['gemini-2.0-flash-lite', 'gemma-3', 'gemini-2.5-flash-lite', 'gemini-2.0-flash']).toContain(result.modelUsed);
+      });
+      
+    }, 60000); // 60 second timeout for rate-limited tests
+
+    test('filters providers by facility type correctly', async () => {
+      const filterPromises = TEST_CONFIG.facilityTypes.map(facilityType => async (model) => {
+        console.log(`Testing ${facilityType} filter using ${model}`);
+        
+        const mockResult = await mockHealthcareProviderSearch({
+          location: TEST_CONFIG.testLocations[0].coordinates,
+          facilityTypes: [facilityType],
+          radius: 10000,
+          maxResults: 15
+        });
+        
+        return {
+          facilityType,
+          providers: mockResult,
+          allMatchType: mockResult.every(provider => 
+            provider.facilityTypes.includes(facilityType) ||
+            provider.name.toLowerCase().includes(facilityType.replace('_', ' '))
+          ),
+          model
+        };
+      });
+
+      const results = await executeParallelTests(filterPromises, 3);
+      
+      results.forEach(result => {
+        expect(result.providers.length).toBeGreaterThan(0);
+        expect(result.allMatchType).toBe(true);
+      });
+      
+    }, 45000);
+
+    test('applies affordability filtering for uninsured patients', async () => {
+      const affordabilityPromises = TEST_CONFIG.affordabilityFilters.map(filter => async (model) => {
+        console.log(`Testing affordability filter: ${filter} using ${model}`);
+        
+        const mockResult = await mockHealthcareProviderSearch({
+          location: TEST_CONFIG.testLocations[1].coordinates,
+          facilityTypes: ['urgent_care', 'primary_care'],
+          affordabilityFilter: filter,
+          radius: 8000,
+          maxResults: 12
+        });
+        
+        return {
+          affordabilityFilter: filter,
+          providers: mockResult,
+          averagePriceLevel: mockResult.reduce((sum, p) => {
+            const priceValue = { 
+              'PRICE_LEVEL_FREE': 0,
+              'PRICE_LEVEL_INEXPENSIVE': 1,
+              'PRICE_LEVEL_MODERATE': 2,
+              'PRICE_LEVEL_EXPENSIVE': 3,
+              'PRICE_LEVEL_VERY_EXPENSIVE': 4
+            }[p.priceLevel] || 2;
+            return sum + priceValue;
+          }, 0) / mockResult.length,
+          model
+        };
+      });
+
+      const results = await executeParallelTests(affordabilityPromises, 2);
+      
+      // Validate affordability filtering
+      const freeResults = results.find(r => r.affordabilityFilter === 'free');
+      const expensiveResults = results.find(r => r.affordabilityFilter === 'any');
+      
+      if (freeResults && expensiveResults) {
+        expect(freeResults.averagePriceLevel).toBeLessThanOrEqual(expensiveResults.averagePriceLevel);
+      }
+      
+    }, 40000);
+  });
+
+  describe('Emergency Level Prioritization', () => {
+    
+    test('prioritizes emergency facilities correctly', async () => {
+      const emergencyPromises = TEST_CONFIG.emergencyLevels.map(level => async (model) => {
+        console.log(`Testing emergency level: ${level} using ${model}`);
+        
+        const mockResult = await mockHealthcareProviderSearch({
+          location: TEST_CONFIG.testLocations[2].coordinates,
+          facilityTypes: ['hospital', 'urgent_care'],
+          emergencyLevel: level,
+          radius: 15000,
+          maxResults: 8
+        });
+        
+        return {
+          emergencyLevel: level,
+          providers: mockResult,
+          hasEmergencyFacilities: mockResult.some(p => 
+            p.name.toLowerCase().includes('emergency') ||
+            p.name.toLowerCase().includes('hospital') ||
+            p.facilityTypes.includes('hospital')
+          ),
+          averageDistance: mockResult.reduce((sum, p) => sum + (p.distance || 0), 0) / mockResult.length,
+          model
+        };
+      });
+
+      const results = await executeParallelTests(emergencyPromises, 2);
+      
+      const emergencyResults = results.find(r => r.emergencyLevel === 'emergency');
+      const routineResults = results.find(r => r.emergencyLevel === 'routine');
+      
+      if (emergencyResults) {
+        expect(emergencyResults.hasEmergencyFacilities).toBe(true);
+        // Emergency searches should prioritize closer facilities
+        if (routineResults) {
+          expect(emergencyResults.averageDistance).toBeLessThanOrEqual(routineResults.averageDistance * 1.2);
+        }
+      }
+      
+    }, 35000);
+  });
+
+  describe('Integration with Turquoise Health Pricing', () => {
+    
+    test('correlates provider search with pricing data', async () => {
+      const integrationTest = async (model) => {
+        console.log(`Testing pricing integration using ${model}`);
+        
+        // Mock provider search
+        const providers = await mockHealthcareProviderSearch({
+          location: TEST_CONFIG.testLocations[0].coordinates,
+          facilityTypes: ['hospital', 'urgent_care'],
+          radius: 10000,
+          maxResults: 5
+        });
+        
+        // Mock pricing data correlation
+        const pricingData = await mockTurquoiseHealthPricing(providers);
+        
+        return {
+          providers,
+          pricingData,
+          correlationSuccess: providers.length === pricingData.length,
+          avgCashPrice: pricingData.reduce((sum, p) => sum + p.cashRate, 0) / pricingData.length,
+          model
+        };
+      };
+
+      const result = await rateLimitedApiCall(integrationTest, 'precision');
+      
+      expect(result.correlationSuccess).toBe(true);
+      expect(result.avgCashPrice).toBeGreaterThan(0);
+      expect(result.avgCashPrice).toBeLessThan(2000); // Reasonable max for urgent care
+      
+    }, 25000);
+  });
+
+  describe('Geocoding Integration', () => {
+    
+    test('converts zip codes to coordinates accurately', async () => {
+      const geocodingPromises = TEST_CONFIG.testLocations.map(location => async (model) => {
+        console.log(`Testing geocoding for ${location.zipCode} using ${model}`);
+        
+        const mockGeocodingResult = await mockGeocoding(location.zipCode);
+        
+        // Calculate distance between expected and geocoded coordinates
+        const distance = calculateDistance(
+          location.coordinates,
+          { latitude: mockGeocodingResult.latitude, longitude: mockGeocodingResult.longitude }
+        );
+        
+        return {
+          zipCode: location.zipCode,
+          expectedCoords: location.coordinates,
+          geocodedCoords: { latitude: mockGeocodingResult.latitude, longitude: mockGeocodingResult.longitude },
+          accuracy: distance < 5, // Within 5km is acceptable
+          distance,
+          model
+        };
+      });
+
+      const results = await executeParallelTests(geocodingPromises, 3);
+      
+      results.forEach(result => {
+        expect(result.accuracy).toBe(true);
+        expect(result.distance).toBeLessThan(5); // 5km accuracy threshold
+      });
+      
+    }, 30000);
+  });
+
+  describe('Rate Limiting and Error Handling', () => {
+    
+    test('handles rate limiting gracefully across models', async () => {
+      console.log('Testing rate limiting behavior');
+      
+      // Create rapid API calls to test rate limiting
+      const rapidCalls = Array.from({ length: 10 }, (_, i) => async (model) => {
+        const startTime = Date.now();
+        
+        await mockHealthcareProviderSearch({
+          location: TEST_CONFIG.testLocations[0].coordinates,
+          facilityTypes: ['hospital'],
+          radius: 5000,
+          maxResults: 3
+        });
+        
+        const endTime = Date.now();
+        
+        return {
+          callIndex: i,
+          responseTime: endTime - startTime,
+          model
+        };
+      });
+
+      const results = await executeParallelTests(rapidCalls, 5);
+      
+      // Verify that different models were used to distribute load
+      const modelsUsed = [...new Set(results.map(r => r.modelUsed))];
+      expect(modelsUsed.length).toBeGreaterThan(1);
+      
+      // Verify reasonable response times (should not be excessively delayed due to rate limiting)
+      const avgResponseTime = results.reduce((sum, r) => sum + r.responseTime, 0) / results.length;
+      expect(avgResponseTime).toBeLessThan(5000); // 5 second average
+      
+    }, 60000);
+  });
+});
+
+// Mock functions for testing
+
+async function mockHealthcareProviderSearch(params) {
+  // Simulate API delay
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  // Generate mock providers based on search parameters
+  const baseProviders = [
+    {
+      id: 'test-hospital-1',
+      name: 'Regional Medical Center',
+      address: '123 Medical Way',
+      location: params.location,
+      distance: Math.random() * 10,
+      rating: 4.2 + Math.random() * 0.8,
+      facilityTypes: ['hospital'],
+      priceLevel: 'PRICE_LEVEL_MODERATE',
+      openNow: true
+    },
+    {
+      id: 'test-urgent-care-1', 
+      name: 'Quick Care Clinic',
+      address: '456 Health St',
+      location: params.location,
+      distance: Math.random() * 8,
+      rating: 3.9 + Math.random() * 0.6,
+      facilityTypes: ['urgent_care'],
+      priceLevel: 'PRICE_LEVEL_INEXPENSIVE',
+      openNow: false
+    }
+  ];
+  
+  // Filter by facility types
+  let filteredProviders = baseProviders.filter(provider =>
+    params.facilityTypes.some(type => provider.facilityTypes.includes(type))
+  );
+  
+  // Apply affordability filter
+  if (params.affordabilityFilter && params.affordabilityFilter !== 'any') {
+    const affordableTypes = {
+      'free': ['PRICE_LEVEL_FREE'],
+      'low_cost': ['PRICE_LEVEL_FREE', 'PRICE_LEVEL_INEXPENSIVE'],
+      'moderate': ['PRICE_LEVEL_FREE', 'PRICE_LEVEL_INEXPENSIVE', 'PRICE_LEVEL_MODERATE']
+    };
+    
+    const allowedTypes = affordableTypes[params.affordabilityFilter] || [];
+    filteredProviders = filteredProviders.filter(p => allowedTypes.includes(p.priceLevel));
+  }
+  
+  return filteredProviders.slice(0, params.maxResults || 10);
+}
+
+async function mockTurquoiseHealthPricing(providers) {
+  // Simulate pricing API delay
+  await new Promise(resolve => setTimeout(resolve, 150));
+  
+  return providers.map(provider => ({
+    providerId: provider.id,
+    providerName: provider.name,
+    billingCode: '99213', // Standard office visit
+    cashRate: 150 + Math.random() * 200, // $150-$350 range
+    negotiatedRate: 100 + Math.random() * 150,
+    description: 'Office visit',
+    setting: provider.facilityTypes[0]
+  }));
+}
+
+async function mockGeocoding(zipCode) {
+  // Simulate geocoding API delay
+  await new Promise(resolve => setTimeout(resolve, 80));
+  
+  // Return coordinates close to expected location
+  const baseCoords = TEST_CONFIG.testLocations.find(loc => loc.zipCode === zipCode)?.coordinates || 
+                     { latitude: 39.8283, longitude: -98.5795 }; // Center of US
+  
+  return {
+    zipCode,
+    latitude: baseCoords.latitude + (Math.random() - 0.5) * 0.01, // Small random offset
+    longitude: baseCoords.longitude + (Math.random() - 0.5) * 0.01,
+    formattedAddress: `${zipCode}, United States`
+  };
+}
+
+function calculateDistance(point1, point2) {
+  const R = 6371; // Earth's radius in km
+  const dLat = (point2.latitude - point1.latitude) * Math.PI / 180;
+  const dLon = (point2.longitude - point1.longitude) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(point1.latitude * Math.PI / 180) * Math.cos(point2.latitude * Math.PI / 180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}

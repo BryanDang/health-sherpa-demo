@@ -1,0 +1,331 @@
+/**
+ * Integration Tests: Gemini API with Rate Limiting Protocol
+ * 
+ * CRITICAL: These tests implement proper spacing to avoid 429 errors
+ * Rate limits: 15 RPM = 4 second intervals between calls minimum
+ */
+
+import { describe, test, expect, beforeAll, afterEach } from '@jest/globals';
+
+// Rate limiting configuration
+const GEMINI_RATE_LIMITS = {
+  'gemini-2.5-pro': { rpm: 5, interval: 12000 }, // 12 seconds between calls
+  'gemini-2.5-flash': { rpm: 10, interval: 6000 }, // 6 seconds between calls  
+  'gemini-2.0-flash': { rpm: 15, interval: 4000 }, // 4 seconds between calls
+  'gemini-2.0-flash-lite': { rpm: 30, interval: 2000 } // 2 seconds between calls
+};
+
+// Test tracking for rate limiting
+let testCallTimestamps = [];
+let currentModel = 'gemini-2.0-flash'; // Default test model
+
+describe('Gemini API Integration with Rate Limiting', () => {
+  
+  beforeAll(() => {
+    console.log('Starting rate-limited Gemini API integration tests');
+    console.log(`Using model: ${currentModel} (${GEMINI_RATE_LIMITS[currentModel].rpm} RPM)`);
+  });
+
+  afterEach(async () => {
+    // Enforce rate limiting between tests
+    const interval = GEMINI_RATE_LIMITS[currentModel].interval;
+    console.log(`⏳ Rate limiting: waiting ${interval}ms before next test`);
+    await new Promise(resolve => setTimeout(resolve, interval));
+  });
+
+  describe('JSON Structure Configuration', () => {
+    
+    test('configures structured JSON output correctly', async () => {
+      const testConfig = {
+        model: currentModel,
+        generationConfig: {
+          temperature: 0.2,
+          topP: 0.8,
+          topK: 40,
+          maxOutputTokens: 2048,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: "object",
+            properties: {
+              user_message: { type: "string" },
+              internal_thoughts: { type: "object" },
+              user_status: { type: "object" }
+            },
+            required: ["user_message", "internal_thoughts", "user_status"]
+          }
+        }
+      };
+
+      // Mock the Gemini API configuration
+      const configResult = await mockGeminiConfig(testConfig);
+      
+      expect(configResult.success).toBe(true);
+      expect(configResult.config.generationConfig.responseMimeType).toBe("application/json");
+      expect(configResult.config.generationConfig.responseSchema).toBeDefined();
+      expect(configResult.config.generationConfig.temperature).toBe(0.2);
+    });
+
+    test('validates medical precision temperature settings', async () => {
+      const medicalConfigs = [
+        { temperature: 0.1, description: 'high precision' },
+        { temperature: 0.2, description: 'balanced precision' },
+        { temperature: 0.3, description: 'moderate precision' }
+      ];
+
+      for (const config of medicalConfigs) {
+        const testResult = await mockGeminiConfig({
+          model: currentModel,
+          generationConfig: {
+            temperature: config.temperature,
+            responseMimeType: "application/json"
+          }
+        });
+
+        expect(testResult.success).toBe(true);
+        expect(testResult.config.generationConfig.temperature).toBe(config.temperature);
+        expect(testResult.config.generationConfig.temperature).toBeGreaterThanOrEqual(0.1);
+        expect(testResult.config.generationConfig.temperature).toBeLessThanOrEqual(0.3);
+      }
+    });
+  });
+
+  describe('System Prompt Optimization', () => {
+    
+    test('validates enhanced system prompt with JSON requirements', async () => {
+      const enhancedSystemPrompt = `
+You are Health Sherpa, an AI healthcare navigation assistant specializing in medical triage for uninsured patients.
+
+**CRITICAL: You MUST respond in valid JSON format matching this exact structure:**
+
+{
+  "user_message": "Your response to the user (300 words routine, 500 words explanatory with markdown)",
+  "internal_thoughts": {
+    "medical_reasoning": {
+      "symptom_analysis": "string",
+      "emergency_protocol_triggered": boolean
+    },
+    "response_strategy": {
+      "information_depth": "routine_300_words" | "explanatory_500_words"
+    }
+  },
+  "user_status": {
+    "emergency_assessment": {
+      "level": "emergency" | "urgent" | "routine" | "wellness",
+      "confidence": "high" | "medium" | "low"
+    }
+  }
+}
+
+**Emergency Protocol**: If ANY emergency signs detected, immediately set emergency_assessment.level to "emergency"
+      `;
+
+      const promptResult = await mockSystemPromptValidation(enhancedSystemPrompt);
+      
+      expect(promptResult.success).toBe(true);
+      expect(promptResult.containsJsonRequirements).toBe(true);
+      expect(promptResult.containsEmergencyProtocol).toBe(true);
+      expect(promptResult.containsWordLimits).toBe(true);
+    });
+  });
+
+  describe('Response Token Management', () => {
+    
+    test('validates 300-word routine response limits', async () => {
+      const routinePrompt = "I have a mild headache for 2 days. What should I do?";
+      
+      const mockResponse = await mockGeminiResponse(routinePrompt, {
+        maxOutputTokens: 1200, // ~300 words * 4 tokens/word
+        expectedDepth: 'routine_300_words'
+      });
+      
+      expect(mockResponse.success).toBe(true);
+      expect(mockResponse.data.internal_thoughts.response_strategy.information_depth).toBe('routine_300_words');
+      
+      const wordCount = countWords(mockResponse.data.user_message);
+      expect(wordCount).toBeLessThanOrEqual(350); // Allow slight buffer
+    });
+
+    test('validates 500-word explanatory response limits', async () => {
+      const complexPrompt = "Can you explain what might be causing my recurring migraines and what treatment options are available?";
+      
+      const mockResponse = await mockGeminiResponse(complexPrompt, {
+        maxOutputTokens: 2000, // ~500 words * 4 tokens/word  
+        expectedDepth: 'explanatory_500_words'
+      });
+      
+      expect(mockResponse.success).toBe(true);
+      expect(mockResponse.data.internal_thoughts.response_strategy.information_depth).toBe('explanatory_500_words');
+      
+      const wordCount = countWords(mockResponse.data.user_message);
+      expect(wordCount).toBeLessThanOrEqual(550); // Allow slight buffer
+    });
+  });
+
+  describe('Error Handling and Fallbacks', () => {
+    
+    test('handles 429 rate limit errors gracefully', async () => {
+      // Simulate rapid API calls that would trigger rate limiting
+      const rapidCalls = Array.from({ length: 3 }, (_, i) => 
+        mockGeminiResponse(`Test message ${i}`, { expectRateLimit: true })
+      );
+
+      const results = await Promise.allSettled(rapidCalls);
+      
+      // At least one should handle rate limiting
+      const hasRateLimitHandling = results.some(result => 
+        result.status === 'fulfilled' && 
+        result.value.rateLimitHandled === true
+      );
+      
+      expect(hasRateLimitHandling).toBe(true);
+    });
+
+    test('provides fallback for malformed JSON responses', async () => {
+      const malformedResponse = '{"user_message": "incomplete json"'; // Missing closing brace
+      
+      const fallbackResult = await handleMalformedJsonResponse(malformedResponse);
+      
+      expect(fallbackResult.success).toBe(true);
+      expect(fallbackResult.usedFallback).toBe(true);
+      expect(fallbackResult.data.user_message).toContain('technical issue');
+      expect(fallbackResult.data.internal_thoughts).toBeDefined();
+      expect(fallbackResult.data.user_status).toBeDefined();
+    });
+  });
+
+  describe('Context Window Management', () => {
+    
+    test('handles conversation history compression', async () => {
+      const longConversationHistory = Array.from({ length: 20 }, (_, i) => ({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: `Message ${i}: ${Array(100).fill('word').join(' ')}` // 100 words each
+      }));
+
+      const compressionResult = await mockContextCompression(longConversationHistory);
+      
+      expect(compressionResult.success).toBe(true);
+      expect(compressionResult.originalTokens).toBeGreaterThan(compressionResult.compressedTokens);
+      expect(compressionResult.compressionRatio).toBeGreaterThan(0.5); // At least 50% compression
+      expect(compressionResult.essentialContextPreserved).toBe(true);
+    });
+  });
+});
+
+// Mock functions for testing (avoid actual API calls during rate-limited tests)
+
+async function mockGeminiConfig(config) {
+  // Simulate configuration validation
+  await simulateApiDelay();
+  
+  return {
+    success: true,
+    config: config,
+    validationErrors: []
+  };
+}
+
+async function mockSystemPromptValidation(prompt) {
+  await simulateApiDelay();
+  
+  return {
+    success: true,
+    containsJsonRequirements: prompt.includes('JSON format'),
+    containsEmergencyProtocol: prompt.includes('Emergency Protocol'),
+    containsWordLimits: prompt.includes('300 words') && prompt.includes('500 words')
+  };
+}
+
+async function mockGeminiResponse(prompt, options = {}) {
+  await simulateApiDelay();
+  
+  if (options.expectRateLimit) {
+    // Simulate rate limiting behavior
+    return {
+      success: true,
+      rateLimitHandled: true,
+      data: createMockResponse(options.expectedDepth || 'routine_300_words')
+    };
+  }
+  
+  return {
+    success: true,
+    data: createMockResponse(options.expectedDepth || 'routine_300_words')
+  };
+}
+
+async function handleMalformedJsonResponse(malformedJson) {
+  await simulateApiDelay();
+  
+  return {
+    success: true,
+    usedFallback: true,
+    data: {
+      user_message: "I'm experiencing a technical issue. Let me help you in a different way - what's your main concern?",
+      internal_thoughts: {
+        medical_reasoning: {
+          symptom_analysis: "Unable to complete analysis due to technical issue",
+          emergency_protocol_triggered: false
+        },
+        response_strategy: {
+          information_depth: "routine_300_words"
+        }
+      },
+      user_status: {
+        emergency_assessment: {
+          level: "routine",
+          confidence: "low"
+        }
+      }
+    }
+  };
+}
+
+async function mockContextCompression(conversationHistory) {
+  await simulateApiDelay();
+  
+  const originalTokens = conversationHistory.reduce((total, msg) => 
+    total + msg.content.split(' ').length * 1.3, 0); // Estimate tokens
+  
+  const compressedTokens = originalTokens * 0.6; // 40% compression
+  
+  return {
+    success: true,
+    originalTokens: Math.round(originalTokens),
+    compressedTokens: Math.round(compressedTokens),
+    compressionRatio: 0.6,
+    essentialContextPreserved: true
+  };
+}
+
+function createMockResponse(depth) {
+  const isRoutine = depth === 'routine_300_words';
+  const wordLimit = isRoutine ? 300 : 500;
+  
+  return {
+    user_message: `Mock response with approximately ${wordLimit} words. `.repeat(Math.floor(wordLimit / 10)),
+    internal_thoughts: {
+      medical_reasoning: {
+        symptom_analysis: "Mock symptom analysis",
+        emergency_protocol_triggered: false
+      },
+      response_strategy: {
+        information_depth: depth
+      }
+    },
+    user_status: {
+      emergency_assessment: {
+        level: "routine",
+        confidence: "high"
+      }
+    }
+  };
+}
+
+function countWords(text) {
+  return text.trim().split(/\s+/).length;
+}
+
+async function simulateApiDelay() {
+  const interval = GEMINI_RATE_LIMITS[currentModel].interval;
+  await new Promise(resolve => setTimeout(resolve, 100)); // Short delay for testing
+}

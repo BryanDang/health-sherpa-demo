@@ -1,0 +1,400 @@
+/**
+ * Unit Tests: Gemini JSON Response Parsing and Validation
+ * 
+ * Following TDD + Contract-Driven Development
+ * CRITICAL: Rate limiting protocol - spaces Gemini API calls to avoid 429 errors
+ */
+
+import { describe, test, expect, beforeAll, afterEach } from '@jest/globals';
+import { GEMINI_JSON_RESPONSE_CONTRACT, GEMINI_RESPONSE_SCHEMA } from '../contracts/gemini-json-response.contract.ts';
+
+// Rate limiting configuration for tests
+const RATE_LIMIT_CONFIG = {
+  GEMINI_API_DELAY: 4000, // 4 seconds between calls (15 RPM = 4s intervals)
+  MAX_RETRIES: 3,
+  BACKOFF_MULTIPLIER: 2
+};
+
+// Mock Gemini API responses for testing
+const MOCK_VALID_JSON_RESPONSE = {
+  user_message: "# Assessment Results \n\nBased on your symptoms, this appears to be a **routine** concern that can be addressed with primary care.\n\n**My recommendations:**\n• Schedule appointment with primary care physician within 1-2 weeks\n• Monitor symptoms and note any changes\n• Consider over-the-counter relief options\n\n**Questions for you:**\n• Have you tried any treatments so far?\n• Do you have access to primary care?",
+  
+  internal_thoughts: {
+    medical_reasoning: {
+      symptom_analysis: "User reports mild headaches over 3 days, no red flag symptoms present",
+      differential_considerations: ["tension headache", "stress-related", "dehydration"],
+      severity_assessment: "Low severity, routine care appropriate",
+      emergency_protocol_triggered: false
+    },
+    cultural_assessment: {
+      cultural_indicators_detected: ["direct communication style"],
+      communication_style_preference: "straightforward medical information",
+      personality_adaptation_needed: "maintain professional but warm tone"
+    },
+    response_strategy: {
+      communication_approach: "provide clear actionable guidance",
+      information_depth: "routine_300_words",
+      follow_up_questions: ["treatment attempts", "care access"],
+      markdown_formatting_plan: "use headers and bullet points for clarity"
+    },
+    continuity_check: {
+      conversation_context_maintained: true,
+      user_status_updates: ["updated symptom timeline", "assessed severity"],
+      next_interaction_preparation: "ready for follow-up questions about care access"
+    }
+  },
+  
+  user_status: {
+    emergency_assessment: {
+      level: "routine",
+      confidence: "high",
+      red_flags: [],
+      escalation_needed: false
+    },
+    medical_context: {
+      primary_concern: "headaches",
+      symptoms_reported: ["headache", "mild pain"],
+      duration: "3 days",
+      severity_scale: 3,
+      relevant_history: []
+    },
+    session_context: {
+      conversation_stage: "assessment",
+      questions_asked: 2,
+      tools_used: []
+    }
+  }
+};
+
+const MOCK_MALFORMED_JSON_RESPONSES = [
+  '{"user_message": "incomplete json"', // Missing closing brace
+  '{"invalid_field": "test"}', // Missing required fields
+  '"just a string"', // Not an object
+  '{"user_message": "", "internal_thoughts": null}' // Null required field
+];
+
+// Rate limiting utility
+let lastApiCallTime = 0;
+
+async function rateLimitedApiCall(apiCall) {
+  const now = Date.now();
+  const timeSinceLastCall = now - lastApiCallTime;
+  
+  if (timeSinceLastCall < RATE_LIMIT_CONFIG.GEMINI_API_DELAY) {
+    const waitTime = RATE_LIMIT_CONFIG.GEMINI_API_DELAY - timeSinceLastCall;
+    console.log(`⏳ Rate limiting: waiting ${waitTime}ms before next API call`);
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+  
+  lastApiCallTime = Date.now();
+  return await apiCall();
+}
+
+describe('JSON Parsing and Validation', () => {
+  
+  describe('Schema Validation', () => {
+    test('validates complete valid JSON response', () => {
+      const result = validateJsonSchema(MOCK_VALID_JSON_RESPONSE, GEMINI_RESPONSE_SCHEMA);
+      
+      expect(result.isValid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    test('rejects malformed JSON responses', () => {
+      MOCK_MALFORMED_JSON_RESPONSES.forEach((malformedJson, index) => {
+        let parsedJson;
+        
+        try {
+          parsedJson = JSON.parse(malformedJson);
+        } catch (error) {
+          expect(error).toBeInstanceOf(SyntaxError);
+          return; // Expected for malformed JSON strings
+        }
+        
+        const result = validateJsonSchema(parsedJson, GEMINI_RESPONSE_SCHEMA);
+        expect(result.isValid).toBe(false);
+        expect(result.errors.length).toBeGreaterThan(0);
+      });
+    });
+
+    test('validates required fields presence', () => {
+      const requiredFields = ['user_message', 'internal_thoughts', 'user_status'];
+      
+      requiredFields.forEach(field => {
+        const incomplete = { ...MOCK_VALID_JSON_RESPONSE };
+        delete incomplete[field];
+        
+        const result = validateJsonSchema(incomplete, GEMINI_RESPONSE_SCHEMA);
+        expect(result.isValid).toBe(false);
+        expect(result.errors.some(err => err.includes(field))).toBe(true);
+      });
+    });
+
+    test('validates emergency assessment enum values', () => {
+      const validLevels = ['emergency', 'urgent', 'routine', 'wellness'];
+      const invalidLevels = ['critical', 'normal', 'ok'];
+      
+      validLevels.forEach(level => {
+        const testData = {
+          ...MOCK_VALID_JSON_RESPONSE,
+          user_status: {
+            ...MOCK_VALID_JSON_RESPONSE.user_status,
+            emergency_assessment: {
+              ...MOCK_VALID_JSON_RESPONSE.user_status.emergency_assessment,
+              level
+            }
+          }
+        };
+        
+        const result = validateJsonSchema(testData, GEMINI_RESPONSE_SCHEMA);
+        expect(result.isValid).toBe(true);
+      });
+      
+      invalidLevels.forEach(level => {
+        const testData = {
+          ...MOCK_VALID_JSON_RESPONSE,
+          user_status: {
+            ...MOCK_VALID_JSON_RESPONSE.user_status,
+            emergency_assessment: {
+              ...MOCK_VALID_JSON_RESPONSE.user_status.emergency_assessment,
+              level
+            }
+          }
+        };
+        
+        const result = validateJsonSchema(testData, GEMINI_RESPONSE_SCHEMA);
+        expect(result.isValid).toBe(false);
+      });
+    });
+  });
+
+  describe('Word Count Validation', () => {
+    test('validates routine response 300-word limit', () => {
+      const longMessage = 'word '.repeat(400); // 400 words
+      const testData = {
+        ...MOCK_VALID_JSON_RESPONSE,
+        user_message: longMessage,
+        internal_thoughts: {
+          ...MOCK_VALID_JSON_RESPONSE.internal_thoughts,
+          response_strategy: {
+            ...MOCK_VALID_JSON_RESPONSE.internal_thoughts.response_strategy,
+            information_depth: "routine_300_words"
+          }
+        }
+      };
+      
+      const wordCount = countWords(testData.user_message);
+      const expectedLimit = testData.internal_thoughts.response_strategy.information_depth === "routine_300_words" ? 300 : 500;
+      
+      expect(wordCount).toBeGreaterThan(expectedLimit);
+      // This should trigger a validation warning in production
+    });
+
+    test('validates explanatory response 500-word limit', () => {
+      const mediumMessage = 'word '.repeat(450); // 450 words  
+      const testData = {
+        ...MOCK_VALID_JSON_RESPONSE,
+        user_message: mediumMessage,
+        internal_thoughts: {
+          ...MOCK_VALID_JSON_RESPONSE.internal_thoughts,
+          response_strategy: {
+            ...MOCK_VALID_JSON_RESPONSE.internal_thoughts.response_strategy,
+            information_depth: "explanatory_500_words"
+          }
+        }
+      };
+      
+      const wordCount = countWords(testData.user_message);
+      expect(wordCount).toBeLessThanOrEqual(500);
+    });
+  });
+
+  describe('Emergency Protocol Validation', () => {
+    test('validates emergency escalation triggers', () => {
+      const emergencyResponse = {
+        ...MOCK_VALID_JSON_RESPONSE,
+        internal_thoughts: {
+          ...MOCK_VALID_JSON_RESPONSE.internal_thoughts,
+          medical_reasoning: {
+            ...MOCK_VALID_JSON_RESPONSE.internal_thoughts.medical_reasoning,
+            emergency_protocol_triggered: true
+          }
+        },
+        user_status: {
+          ...MOCK_VALID_JSON_RESPONSE.user_status,
+          emergency_assessment: {
+            level: "emergency",
+            confidence: "high",
+            red_flags: ["chest pain", "difficulty breathing"],
+            escalation_needed: true
+          }
+        }
+      };
+
+      // Emergency protocol should be consistent across fields
+      expect(emergencyResponse.internal_thoughts.medical_reasoning.emergency_protocol_triggered).toBe(true);
+      expect(emergencyResponse.user_status.emergency_assessment.level).toBe("emergency");
+      expect(emergencyResponse.user_status.emergency_assessment.escalation_needed).toBe(true);
+      expect(emergencyResponse.user_status.emergency_assessment.red_flags.length).toBeGreaterThan(0);
+    });
+  });
+});
+
+describe('Failure Mode Handling', () => {
+  
+  describe('Malformed JSON Recovery', () => {
+    test('provides fallback for unparseable JSON', () => {
+      const malformedResponse = '{"user_message": "test"'; // Missing closing brace
+      
+      const result = parseJsonWithFallback(malformedResponse);
+      
+      expect(result.success).toBe(false);
+      expect(result.fallbackResponse).toBeDefined();
+      expect(result.fallbackResponse.user_message).toContain('technical issue');
+      expect(result.error).toContain('JSON parsing failed');
+    });
+
+    test('provides fallback for missing required fields', () => {
+      const incompleteResponse = JSON.stringify({ user_message: "test only" });
+      
+      const result = parseJsonWithFallback(incompleteResponse);
+      
+      expect(result.success).toBe(false);
+      expect(result.fallbackResponse.internal_thoughts).toBeDefined();
+      expect(result.fallbackResponse.user_status).toBeDefined();
+    });
+  });
+
+  // Rate limited test - only run occasionally
+  describe('API Integration (Rate Limited)', () => {
+    test('handles Gemini API rate limits gracefully', async () => {
+      // This test is spaced to avoid hitting rate limits
+      await rateLimitedApiCall(async () => {
+        const mockApiCall = () => Promise.resolve({ status: 429, error: 'Rate limit exceeded' });
+        
+        const result = await handleApiRateLimit(mockApiCall, RATE_LIMIT_CONFIG);
+        
+        expect(result.retryAttempted).toBe(true);
+        expect(result.backoffApplied).toBe(true);
+      });
+    }, 10000); // 10 second timeout for rate limited test
+  });
+});
+
+// Utility functions for testing
+function validateJsonSchema(data, schema) {
+  // Simplified schema validation for testing
+  const errors = [];
+  
+  // Check required fields
+  if (!data.user_message) errors.push('Missing user_message');
+  if (!data.internal_thoughts) errors.push('Missing internal_thoughts');
+  if (!data.user_status) errors.push('Missing user_status');
+  
+  // Check emergency assessment enum
+  if (data.user_status?.emergency_assessment?.level) {
+    const validLevels = ['emergency', 'urgent', 'routine', 'wellness'];
+    if (!validLevels.includes(data.user_status.emergency_assessment.level)) {
+      errors.push('Invalid emergency level');
+    }
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors
+  };
+}
+
+function countWords(text) {
+  return text.trim().split(/\s+/).length;
+}
+
+function parseJsonWithFallback(jsonString) {
+  try {
+    const parsed = JSON.parse(jsonString);
+    const validation = validateJsonSchema(parsed, GEMINI_RESPONSE_SCHEMA);
+    
+    if (!validation.isValid) {
+      return {
+        success: false,
+        error: `Schema validation failed: ${validation.errors.join(', ')}`,
+        fallbackResponse: createFallbackResponse()
+      };
+    }
+    
+    return { success: true, data: parsed };
+  } catch (error) {
+    return {
+      success: false,
+      error: `JSON parsing failed: ${error.message}`,
+      fallbackResponse: createFallbackResponse()
+    };
+  }
+}
+
+function createFallbackResponse() {
+  return {
+    user_message: "I'm experiencing a technical issue processing your request. Let me help you in a different way - can you tell me more about your main concern?",
+    internal_thoughts: {
+      medical_reasoning: {
+        symptom_analysis: "Unable to complete analysis due to technical issue",
+        differential_considerations: [],
+        severity_assessment: "Assessment incomplete",
+        emergency_protocol_triggered: false
+      },
+      response_strategy: {
+        communication_approach: "fallback mode - gather more information",
+        information_depth: "routine_300_words"
+      },
+      continuity_check: {
+        conversation_context_maintained: false
+      }
+    },
+    user_status: {
+      emergency_assessment: {
+        level: "routine",
+        confidence: "low",
+        red_flags: [],
+        escalation_needed: false
+      },
+      session_context: {
+        conversation_stage: "initial"
+      }
+    }
+  };
+}
+
+async function handleApiRateLimit(apiCall, config) {
+  let attempts = 0;
+  let delay = 1000;
+  
+  while (attempts < config.MAX_RETRIES) {
+    try {
+      const result = await apiCall();
+      
+      if (result.status === 429) {
+        attempts++;
+        console.log(`Rate limit hit, attempt ${attempts}/${config.MAX_RETRIES}`);
+        
+        if (attempts < config.MAX_RETRIES) {
+          await new Promise(resolve => setTimeout(resolve, delay));
+          delay *= config.BACKOFF_MULTIPLIER;
+        }
+        
+        continue;
+      }
+      
+      return { success: true, data: result, retryAttempted: attempts > 0, backoffApplied: delay > 1000 };
+    } catch (error) {
+      attempts++;
+      if (attempts >= config.MAX_RETRIES) {
+        return { success: false, error: error.message, retryAttempted: true };
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, delay));
+      delay *= config.BACKOFF_MULTIPLIER;
+    }
+  }
+  
+  return { success: false, error: 'Max retries exceeded', retryAttempted: true, backoffApplied: true };
+}

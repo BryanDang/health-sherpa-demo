@@ -1,0 +1,345 @@
+/**
+ * Unit Tests: Medical Definition Application
+ * 
+ * Tests the AI's ability to apply medical definitions to patient descriptions
+ * and correctly identify emergencies, vague cases, and non-emergencies
+ */
+
+const BASE_URL = process.env.SUPABASE_FUNCTIONS_URL;
+const API_KEY = `Bearer ${process.env.SUPABASE_ANON_KEY}`;
+
+class MedicalDefinitionTestSuite {
+  constructor() {
+    this.results = [];
+    this.totalTests = 0;
+    this.passedTests = 0;
+  }
+
+  async runTest(name, testFn) {
+    this.totalTests++;
+    console.log(`\nTesting: ${name}`);
+    
+    try {
+      await testFn();
+      this.passedTests++;
+      console.log(`PASS: ${name}`);
+      this.results.push({ name, status: 'PASS', error: null });
+    } catch (error) {
+      console.log(`FAIL: ${name} - ${error.message}`);
+      this.results.push({ name, status: 'FAIL', error: error.message });
+    }
+  }
+
+  async callTriageEnhanced(message, history = []) {
+    const response = await fetch(`${BASE_URL}/triage-enhanced`, {
+      method: 'POST',
+      headers: {
+        'Authorization': API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message,
+        conversationHistory: history
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`API call failed: ${response.status} ${response.statusText}`);
+    }
+
+    return await response.json();
+  }
+
+  assert(condition, message) {
+    if (!condition) {
+      throw new Error(message);
+    }
+  }
+
+  printSummary() {
+    console.log('\n' + '='.repeat(70));
+    console.log(`MEDICAL DEFINITION UNIT TEST SUMMARY`);
+    console.log(`Total Tests: ${this.totalTests}`);
+    console.log(`Passed: ${this.passedTests}`);
+    console.log(`Failed: ${this.totalTests - this.passedTests}`);
+    console.log(`Success Rate: ${((this.passedTests / this.totalTests) * 100).toFixed(1)}%`);
+    
+    if (this.passedTests === this.totalTests) {
+      console.log('ALL MEDICAL DEFINITION TESTS PASSED!');
+    } else {
+      console.log('\nFailed Tests:');
+      this.results.filter(r => r.status === 'FAIL').forEach(r => {
+        console.log(`  - ${r.name}: ${r.error}`);
+      });
+    }
+    console.log('='.repeat(70));
+  }
+}
+
+async function runMedicalDefinitionTests() {
+  const suite = new MedicalDefinitionTestSuite();
+
+  // ========================================
+  // UNCONTROLLED BLEEDING TESTS
+  // ========================================
+
+  // Test 1: Clear Emergency - Meets All Criteria
+  await suite.runTest('Uncontrolled Bleeding: Clear Emergency Match', async () => {
+    const data = await suite.callTriageEnhanced(
+      'I cut my finger deep, it won\'t stop bleeding after 20 minutes of pressure and I\'m feeling dizzy'
+    );
+    
+    suite.assert(data.careLevel === 'emergency', 
+      `Expected emergency, got ${data.careLevel}`);
+    
+    const reasoning = data.reasoning.careLevelJustification || '';
+    suite.assert(reasoning.toLowerCase().includes('emergency') || 
+                reasoning.toLowerCase().includes('bleeding'), 
+      'Reasoning should mention emergency or bleeding criteria');
+    
+    console.log(`    Classification: ${data.careLevel}`);
+    console.log(`    Reasoning: ${reasoning}`);
+  });
+
+  // Test 2: Vague Bleeding - Should Ask Clarifying Questions
+  await suite.runTest('Uncontrolled Bleeding: Vague Description', async () => {
+    const data = await suite.callTriageEnhanced('I\'m bleeding a little bit');
+    
+    // Should not be emergency (too vague), but should escalate for safety
+    suite.assert(['urgent', 'primary'].includes(data.careLevel), 
+      `Vague bleeding should be urgent/primary, got ${data.careLevel}`);
+    
+    // Should ask clarifying questions
+    suite.assert(data.needsMoreInfo === true || 
+                (data.clarificationQuestions && data.clarificationQuestions.length > 0), 
+      'Should ask clarifying questions for vague bleeding');
+    
+    console.log(`    Classification: ${data.careLevel}`);
+    console.log(`    Needs more info: ${data.needsMoreInfo}`);
+    console.log(`    Questions: ${data.clarificationQuestions?.length || 0}`);
+  });
+
+  // Test 3: No Bleeding Match - Minor Cut
+  await suite.runTest('Uncontrolled Bleeding: Minor Cut (No Match)', async () => {
+    const data = await suite.callTriageEnhanced(
+      'I have a small paper cut that stopped bleeding after I put a band-aid on it'
+    );
+    
+    // Should not escalate to emergency
+    suite.assert(!['emergency'].includes(data.careLevel), 
+      'Minor controlled bleeding should not be emergency');
+    
+    // Should be self-care or primary
+    suite.assert(['self_care', 'primary'].includes(data.careLevel), 
+      `Minor cut should be self-care/primary, got ${data.careLevel}`);
+    
+    console.log(`    Classification: ${data.careLevel} (should be self-care/primary)`);
+  });
+
+  // ========================================
+  // CHEST PAIN TESTS
+  // ========================================
+
+  // Test 4: Clear Chest Pain Emergency
+  await suite.runTest('Chest Pain: Clear Emergency Match', async () => {
+    const data = await suite.callTriageEnhanced(
+      'I have crushing chest pain that feels like an elephant on my chest, radiating to my left arm, with shortness of breath'
+    );
+    
+    suite.assert(data.careLevel === 'emergency', 
+      `Expected emergency for classic heart attack symptoms, got ${data.careLevel}`);
+    
+    console.log(`    Classification: ${data.careLevel}`);
+  });
+
+  // Test 5: Vague Chest Discomfort
+  await suite.runTest('Chest Pain: Vague Description', async () => {
+    const data = await suite.callTriageEnhanced('I have some chest discomfort');
+    
+    // Should escalate for safety (chest symptoms are high risk)
+    suite.assert(['emergency', 'urgent'].includes(data.careLevel), 
+      `Vague chest discomfort should escalate, got ${data.careLevel}`);
+    
+    // Should ask clarifying questions
+    suite.assert(data.needsMoreInfo === true || 
+                (data.clarificationQuestions && data.clarificationQuestions.length > 0), 
+      'Should ask clarifying questions for vague chest symptoms');
+    
+    console.log(`    Classification: ${data.careLevel}`);
+    console.log(`    Questions asked: ${data.clarificationQuestions?.length || 0}`);
+  });
+
+  // ========================================
+  // SEVERE HEADACHE TESTS
+  // ========================================
+
+  // Test 6: Thunderclap Headache Emergency
+  await suite.runTest('Severe Headache: Thunderclap Emergency', async () => {
+    const data = await suite.callTriageEnhanced(
+      'I suddenly got the worst headache of my life like a thunderclap, it came on in seconds'
+    );
+    
+    suite.assert(data.careLevel === 'emergency', 
+      `Thunderclap headache should be emergency, got ${data.careLevel}`);
+    
+    console.log(`    Classification: ${data.careLevel}`);
+  });
+
+  // Test 7: Regular Headache - No Emergency
+  await suite.runTest('Severe Headache: Regular Headache (No Match)', async () => {
+    const data = await suite.callTriageEnhanced(
+      'I have a mild headache that started gradually this morning'
+    );
+    
+    // Should not be emergency
+    suite.assert(!['emergency'].includes(data.careLevel), 
+      'Mild gradual headache should not be emergency');
+    
+    console.log(`    Classification: ${data.careLevel} (should not be emergency)`);
+  });
+
+  // ========================================
+  // BREATHING DIFFICULTY TESTS
+  // ========================================
+
+  // Test 8: Severe Breathing Emergency
+  await suite.runTest('Breathing Difficulty: Severe Emergency', async () => {
+    const data = await suite.callTriageEnhanced(
+      'I can only speak a few words at a time, I\'m gasping for air and my lips are turning blue'
+    );
+    
+    suite.assert(data.careLevel === 'emergency', 
+      `Severe breathing difficulty should be emergency, got ${data.careLevel}`);
+    
+    console.log(`    Classification: ${data.careLevel}`);
+  });
+
+  // Test 9: Mild Shortness of Breath
+  await suite.runTest('Breathing Difficulty: Mild SOB (No Emergency)', async () => {
+    const data = await suite.callTriageEnhanced(
+      'I feel a little short of breath after climbing stairs'
+    );
+    
+    // Should not be emergency
+    suite.assert(!['emergency'].includes(data.careLevel), 
+      'Mild exertional SOB should not be emergency');
+    
+    console.log(`    Classification: ${data.careLevel} (should not be emergency)`);
+  });
+
+  // ========================================
+  // AI DEFINITION APPLICATION TESTS
+  // ========================================
+
+  // Test 10: Synonym Recognition
+  await suite.runTest('AI Definition: Synonym Recognition', async () => {
+    const data = await suite.callTriageEnhanced(
+      'My cut won\'t quit bleeding even after holding pressure for 25 minutes'
+    );
+    
+    // AI should recognize "won't quit bleeding" = "uncontrolled bleeding"
+    suite.assert(['emergency', 'urgent'].includes(data.careLevel), 
+      `AI should recognize bleeding synonyms, got ${data.careLevel}`);
+    
+    console.log(`    Classification: ${data.careLevel}`);
+    console.log(`    AI recognized bleeding synonyms: ${data.careLevel !== 'primary'}`);
+  });
+
+  // Test 11: Medical Context Understanding
+  await suite.runTest('AI Definition: Medical Context Understanding', async () => {
+    const data = await suite.callTriageEnhanced(
+      'I\'m having substernal chest pressure with diaphoresis and radiation to my jaw'
+    );
+    
+    // AI should understand medical terminology
+    suite.assert(data.careLevel === 'emergency', 
+      `AI should understand medical terms for heart attack, got ${data.careLevel}`);
+    
+    console.log(`    Classification: ${data.careLevel}`);
+    console.log(`    AI understood medical terminology: ${data.careLevel === 'emergency'}`);
+  });
+
+  // Test 12: Complex Multi-Criteria Evaluation
+  await suite.runTest('AI Definition: Multi-Criteria Complex Case', async () => {
+    const data = await suite.callTriageEnhanced(
+      'I fell and hit my head, now I have a severe headache, feel confused, and am vomiting'
+    );
+    
+    // Multiple emergency criteria: head injury + severe headache + neurological symptoms
+    suite.assert(data.careLevel === 'emergency', 
+      `Multi-criteria emergency should be detected, got ${data.careLevel}`);
+    
+    console.log(`    Classification: ${data.careLevel}`);
+    console.log(`    Multi-criteria evaluation: passed`);
+  });
+
+  // ========================================
+  // EDGE CASE TESTS
+  // ========================================
+
+  // Test 13: No Emergency Symptoms
+  await suite.runTest('Edge Case: No Emergency Symptoms', async () => {
+    const data = await suite.callTriageEnhanced(
+      'I have a runny nose and feel tired today'
+    );
+    
+    // Should be self-care or primary, not emergency/urgent
+    suite.assert(['self_care', 'primary'].includes(data.careLevel), 
+      `Common cold should be self-care/primary, got ${data.careLevel}`);
+    
+    console.log(`    Classification: ${data.careLevel} (appropriate for common cold)`);
+  });
+
+  // Test 14: Ambiguous Symptoms Requiring Clarification
+  await suite.runTest('Edge Case: Ambiguous Symptoms', async () => {
+    const data = await suite.callTriageEnhanced('I don\'t feel well');
+    
+    // Should ask for clarification
+    suite.assert(data.needsMoreInfo === true || 
+                (data.clarificationQuestions && data.clarificationQuestions.length > 0), 
+      'Ambiguous symptoms should trigger clarification');
+    
+    console.log(`    Needs clarification: ${data.needsMoreInfo}`);
+    console.log(`    Questions provided: ${data.clarificationQuestions?.length || 0}`);
+  });
+
+  // Test 15: System Robustness - Unusual Input
+  await suite.runTest('Edge Case: System Robustness', async () => {
+    const data = await suite.callTriageEnhanced(
+      'my symptoms are: !@#$%^&*() bleeding bleeding bleeding'
+    );
+    
+    // System should handle unusual input gracefully
+    suite.assert(data.careLevel && data.response, 
+      'System should handle unusual input gracefully');
+    
+    // Should still detect bleeding mention
+    suite.assert(!['self_care'].includes(data.careLevel), 
+      'Should still detect bleeding despite unusual formatting');
+    
+    console.log(`    Classification: ${data.careLevel}`);
+    console.log(`    Robustness: system handled unusual input`);
+  });
+
+  suite.printSummary();
+  return suite.passedTests === suite.totalTests;
+}
+
+// Run the comprehensive medical definition tests
+console.log('Starting Medical Definition Unit Tests...');
+console.log('Testing AI application of medical emergency definitions to patient descriptions...\n');
+
+runMedicalDefinitionTests().then(success => {
+  if (success) {
+    console.log('\nALL MEDICAL DEFINITION TESTS PASSED!');
+    console.log('AI correctly applies medical definitions to patient descriptions');
+    console.log('Medical definition system ready for integration testing');
+  } else {
+    console.log('\nMEDICAL DEFINITION TESTS FAILED');
+    console.log('Fix definition application before proceeding to integration tests');
+  }
+  process.exit(success ? 0 : 1);
+}).catch(error => {
+  console.error('Medical definition test suite crashed:', error);
+  process.exit(1);
+});

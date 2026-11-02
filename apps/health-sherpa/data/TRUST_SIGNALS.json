@@ -1,0 +1,148 @@
+{
+  "boost_trust_signals": [
+    "Show certainty indicators and citations when sharing specific information, using non-technical language to explain conclusions.",
+    "Acknowledge, relate to, or express empathy when a user shares personal information.",
+    "Clearly state what the AI can and cannot do: clarify and explain, support learning and navigation, but not give medical advice or replace a provider.",
+    "Display regulatory compliance badges (FDA, HIPAA, SOC 2) prominently in the interface.",
+    "Show real-time privacy indicators during document processing (e.g., 'Your document is being de-identified...', 'Data encrypted in transit').",
+    "Provide links to third-party verification resources (CMS Open Payments, Healthgrades, medical board lookups)."
+  ],
+  "trust_decisions": [
+    "Uploading private documents is a major trust decision—flag it clearly.",
+    "Encourage a 'trust pause': prompt the user to slow down and review demo documents that show how their files will be de-identified.",
+    "Implement progressive consent: start with demo documents before asking for real medical records.",
+    "Show example de-identification output before processing user documents.",
+    "Provide explicit data deletion timelines and user control over data retention."
+  ],
+  "trustworthy_vs_trustbuilding": {
+    "expectation_setting": [
+      "Be clear about what you want before expressing it.",
+      "Don't shy away from clear expectations due to fear of sounding assertive.",
+      "Explain your intentions and why you believe the outcome is achievable.",
+      "Reference specific regulatory oversight (FDA has approved 900+ AI medical devices) to establish credibility.",
+      "Acknowledge limitations explicitly: 'I cannot diagnose, prescribe, or replace your healthcare provider.'"
+    ],
+    "feedback_and_reporting": [
+      "Leave an easy reporting mechanism for users to flag problems (e.g., message box at session end that logs feedback).",
+      "Ask for user feedback, ratings, and consent to quote their responses.",
+      "Implement incident reporting similar to Patient Safety Organizations for AI-related concerns.",
+      "Provide direct links to regulatory reporting if users encounter safety issues."
+    ],
+    "communication_principles": [
+      "Use progressive disclosure: show detailed info only when requested.",
+      "Always verify understanding: what you think you said, what you actually said, and what the user heard may differ.",
+      "After the user shares their context (concern, goal, role, experience), respond with messages that include: intro of self, intentions, expectations, and limitations.",
+      "Mirror professional medical organization guidelines: maintain human oversight, transparency, and patient consent principles.",
+      "Implement 'trust pause' moments during high-stakes interactions (document analysis, treatment discussions)."
+    ]
+  },
+  "regulatory_compliance_signals": {
+    "hipaa_compliance": {
+      "visual_indicators": [
+        "Lock icons during data transmission",
+        "Encryption status displays",
+        "Data processing location transparency"
+      ],
+      "user_controls": [
+        "Data deletion options",
+        "Access logs",
+        "Consent management"
+      ],
+      "transparency": [
+        "Clear privacy policies",
+        "Data use explanations",
+        "Third-party sharing disclosures"
+      ]
+    },
+    "fda_guidance_alignment": {
+      "ai_transparency": [
+        "Algorithm explanation in simple terms",
+        "Confidence levels for recommendations",
+        "Limitation acknowledgments"
+      ],
+      "human_oversight": [
+        "Clear physician consultation prompts",
+        "Emergency care redirections",
+        "Professional supervision reminders"
+      ],
+      "continuous_monitoring": [
+        "Performance tracking displays",
+        "Accuracy metrics",
+        "Update notifications"
+      ]
+    },
+    "professional_standards": {
+      "ama_principles": [
+        "Augment not replace human judgment",
+        "Transparent AI decision-making",
+        "Equitable access and outcomes"
+      ],
+      "medical_ethics": [
+        "Beneficence (do good)",
+        "Non-maleficence (do no harm)",
+        "Autonomy (patient choice)",
+        "Justice (fair access)"
+      ]
+    }
+  },
+  "affordability_trust_signals": {
+    "cost_transparency": [
+      "Always free for basic AI consultation",
+      "Clear pricing for any premium features",
+      "No hidden costs or subscription traps",
+      "Links to free/low-cost care resources"
+    ],
+    "accessibility_assurance": [
+      "Multi-language support indicators",
+      "Screen reader compatibility badges",
+      "Mobile-optimized interface assurance",
+      "Offline capability notifications"
+    ],
+    "resource_verification": [
+      "Real-time availability of assistance programs",
+      "Verified links to official government resources",
+      "Updated eligibility requirements",
+      "Success rate transparency for assistance programs"
+    ]
+  },
+  "crisis_trust_patterns": {
+    "emergency_recognition": [
+      "Immediate emergency service redirections",
+      "Crisis hotline integrations",
+      "Clear escalation pathways",
+      "Location-based emergency resources"
+    ],
+    "vulnerability_protection": [
+      "Extra consent verification for vulnerable populations",
+      "Simplified language options",
+      "Caregiver permission protocols",
+      "Mental health crisis detection and response"
+    ],
+    "data_protection_during_crisis": [
+      "Enhanced privacy during emergency situations",
+      "Minimal data collection during crisis interactions",
+      "Secure emergency contact integration",
+      "Temporary access controls for caregivers"
+    ]
+  },
+  "continuous_trust_building": {
+    "transparency_reports": [
+      "Regular accuracy and safety reporting",
+      "User satisfaction metrics",
+      "Incident response summaries",
+      "Algorithm update notifications"
+    ],
+    "community_engagement": [
+      "User advisory board participation",
+      "Healthcare provider feedback integration",
+      "Patient advocacy group collaboration",
+      "Public comment periods for major changes"
+    ],
+    "educational_initiatives": [
+      "AI literacy resources for patients",
+      "Healthcare navigation education",
+      "Rights and protections awareness",
+      "Digital health literacy programs"
+    ]
+  }
+}

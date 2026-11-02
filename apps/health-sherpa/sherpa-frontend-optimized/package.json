@@ -1,0 +1,44 @@
+{
+  "name": "sherpa-ai-optimized",
+  "version": "1.0.0",
+  "description": "Optimized Sherpa AI Healthcare Frontend",
+  "main": "sherpa-app-optimized.js",
+  "scripts": {
+    "build": "webpack --mode=production",
+    "build:analyze": "ANALYZE=true webpack --mode=production",
+    "dev": "webpack serve --mode=development",
+    "optimize": "npm run build && npm run compress",
+    "compress": "gzip -9 -c dist/*.js > dist/compressed.js.gz",
+    "minify:css": "cleancss -o dist/styles.min.css optimized-sherpa-styles.css",
+    "minify:js": "terser sherpa-app-optimized.js -o dist/sherpa-app.min.js -c -m",
+    "test:performance": "lighthouse http://localhost:3000 --output json --output-path ./performance-report.json"
+  },
+  "dependencies": {
+    "core-js": "^3.36.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.27.4",
+    "@babel/preset-env": "^7.27.2",
+    "babel-loader": "^9.2.1",
+    "clean-css-cli": "^5.6.3",
+    "compression-webpack-plugin": "^11.1.0",
+    "css-loader": "^6.11.0",
+    "cssnano": "^6.1.2",
+    "lighthouse": "^11.7.0",
+    "postcss": "^8.4.38",
+    "postcss-loader": "^8.1.1",
+    "postcss-preset-env": "^9.5.2",
+    "style-loader": "^3.3.4",
+    "terser": "^5.30.0",
+    "terser-webpack-plugin": "^5.3.14",
+    "webpack": "^5.99.9",
+    "webpack-bundle-analyzer": "^4.10.2",
+    "webpack-cli": "^5.1.4",
+    "webpack-dev-server": "^5.0.4"
+  },
+  "browserslist": [
+    "> 0.25%",
+    "not dead",
+    "not ie 11"
+  ]
+}
